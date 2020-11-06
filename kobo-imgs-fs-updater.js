@@ -1,43 +1,104 @@
-import {
-  toJqSelectBody, findAttachment, getTargetDir, toPath, fileExists, 
-  deletePath, getDirEntries, escapeRegExp, getConfigs
-} from './utils.js';
-import {getAssets, getAssetInfo, getSubmissions} from './kobo-api-requests.js';
-import {saveImage, writeLog, readLog} from './kobo-fs-handler.js';
+import {getAssets, getAssetInfo, getSubmissions} from './modules/kobo-api.js';
+import {saveImage, writeLog} from './modules/kobo-imgs-fs.js';
+import * as Utils from './modules/utils.js';
+import * as Configs from './modules/configs.js'
+import { check } from './modules/checks.js';
 import program from 'commander';
+import colors from 'colors/safe.js';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/**
+ * Process comand line options
+ */
 program
   .description('KoBo image file-system updater.')
-  .option('-f, --config-file <FILE>', 'JSON file with run configs.');
+  .option('-f, --config-file <FILE>', 'JSON file with run configs.')
+  .option('-s, --api-server-url <URL>', 'URL of the KoBo API server.')
+  .option('-m, --media-server-url <URL>', 'URL of the KoBo media server.')
+  .option('-o, --output-dir <DIR>', 'Directory where the run results will be stored')
+  .option('-t, --token <TOKEN>', 'KoBo authentication token.')
+  .option('--max-request-retries <MAX_REQUEST_RETRIES>', 'Max request retries before cancel the process.')
+  .option('--max-download-retries <MAX_DOWNLOAD_RETRIES>', 'Max download retries before cancel the process.')
+  .option('--request-timeout <REQUEST_TIMEOUT>', 'Request timeout before trying again.')
+  .option('--connection-timeout <CONETION_TIMEOUT>', 'Connection timeout before trying again.')
+  .option('--download-timeout <DOWNLOAD_TIMEOUT>', 'Download timeout before trying again.');
 program.parse(process.argv);
 
-const _configs = getConfigs(program.configFile);
-start();
-
-async function start() {
-  let results = {};
+/**
+ * init & start
+ */
+let _configs = null;
+try {
   
-  results.step1 = await step1();
-  results.step2 = await step2(results.step1);
-  results.step3 = await step3(results.step2);
-  results.step4 = await step4(results.step3);
-  results.step5 = await step5(results.step4);
+  _configs = Configs.getConfigs(program, __dirname);
+  Configs.setupOutputDir(_configs);
+  start();
+
+} catch(error) {
+  console.log('\n'+colors.red(error.name)+':', error.message);
+  console.log(colors.gray(error.stack.slice(error.name.length + error.message.length + 2 + 1)));
+  process.exit(1);
 }
 
 /**
- * step1()  get assets list
+ * start  run steps.
+ */
+async function start() {
+  let results = {};
+  let steps = [step1, step2, step3, step4, step5];
+  for(let i=0; i<steps.length; i++) {
+    await run( steps[i], i+1, steps.length, results );
+  }
+}
+
+async function run( step, stepId, totalSteps, results ) {
+  //internal
+  check(step, 'mustExists', 'function');
+  check(stepId, 'defined', 'number');
+  check(totalSteps, 'mustExists', 'number');
+  check(results, 'mustExists', 'object');
+
+  //msg
+  console.log("@@ running step: ", colors.cyan(stepId));
+
+  let _step = `step${stepId}`;
+  let _prevStep = `step${stepId-1}`;
+  try {
+    results[_step] = await step(results[_prevStep]);
+    //internal
+    check(results[_step], 'mustExists', 'array');
+
+    //check
+    if(results[_step].length === 0) {
+      console.log(`@ process finished at step:`, stepId, 'of', totalSteps);
+      console.log(`@`, colors.yellow('done'));
+      process.exit(1);
+    }
+  } catch(error) {
+    console.log(`@ step ${stepId}: `, colors.red('fail'));
+    console.log('\n'+colors.red(error.name)+':', error.message);
+    console.log(colors.gray(error.stack.slice(error.name.length + error.message.length + 2 + 1)));
+    console.log(`@ -----------------\n`);
+    process.exit(1);
+  }
+}
+
+/**
+ * step1  get assets list.
  */
 async function step1() {
-  //internal check
-  if(_configs && typeof _configs !== 'object') throw new Error('expected object in @_configs');
   //msg
-  console.log(`@ -----------------`); console.log(`@ step1: get assets... start`);
+  console.log(`@ -----------------`, colors.cyan('get assets'));
  
   /**
    * Set configurable keys and values
    */
   //config.filters
-  let _filters = _configs&&_configs.filters ? _configs.filters : [];  
+  let _filters = _configs.filters;  
   //asset uid values
   let c_asset_values_uid = _filters.map((o) => o.assetId);
 
@@ -51,7 +112,6 @@ async function step1() {
    * Configure filters 
    */
   let jq = [];
-
   /**
    * Filter 1: 
    * 
@@ -59,11 +119,10 @@ async function step1() {
    *    c_asset_values_uid
    */
   if(c_asset_values_uid.length > 0) {
-    let select_asset_values_uid = await toJqSelectBody("uid", c_asset_values_uid, "==", "or");
+    let select_asset_values_uid = await Utils.toJqSelectBody("uid", c_asset_values_uid, "==", "or");
     let f1 = `.[]|[select(${select_asset_values_uid})]`;
     jq.push(f1);
   }
-
   /**
    * Filter 2: 
    * 
@@ -75,24 +134,28 @@ async function step1() {
     let f2 = `.[]|[{${keys}}]`;
     jq.push(f2);
   }
-
-  let options = {filters: {jq: jq}};
+  /**
+   * Get assets
+   */
+  let options = {..._configs, resFilters: {jq: jq}};
   //get
-  let results = await getAssets(options);
-  //check
-  if(!results) { console.log("@@ step1: null results... done"); return };
-  if(!Array.isArray(results)||!results.length) { console.log("@@ step1: no results... done"); return };
-  
+  let result = await getAssets(options);
+  //internal
+  check(result, 'mustExists', 'object');
+  check(result.results, 'mustExists', 'array');
+  check(result.report, 'mustExists', 'object');
+  check(result.status, 'defined', 'boolean');
+
   //msg
-  //console.log(`@ results:`, results);
-  console.log(`@ step1: ${results.length} results... done`);
+  console.log(result.status ? colors.cyan('ok') : colors.red('fail'), '- report:');
+  console.log(result.report);
   console.log(`@ -----------------\n`);
 
-  return results;
+  return result.results;
 }
 
 /**
- * step2()  get assets image-fields
+ * step2  get assets image-fields.
  */
 async function step2(assets) {
   //check
@@ -198,7 +261,7 @@ async function step3(assets) {
      *    c_submission_values__id
      */
     if(c_submission_values__id.length > 0) {
-      let select_submission_values__id = await toJqSelectBody("_id", c_submission_values__id, "==", "or");
+      let select_submission_values__id = await Utils.toJqSelectBody("_id", c_submission_values__id, "==", "or");
       let f1 = `[.[]|select(${select_submission_values__id})]`;
       jq.push(f1);
     }
@@ -220,8 +283,8 @@ async function step3(assets) {
      */
     let e_submission_keys = [...c_submission_keys, ...r_submission_keys];
     let ep_submission_keys = [...r_submission_keys_images];
-    let e_match_submission_keys = escapeRegExp(e_submission_keys).map(e => `^${e}$`).join('|');
-    let ep_match_submission_keys = escapeRegExp(ep_submission_keys).map(e => `^${e}$|/${e}$`).join('|');
+    let e_match_submission_keys = Utils.escapeRegExp(e_submission_keys).map(e => `^${e}$`).join('|');
+    let ep_match_submission_keys = Utils.escapeRegExp(ep_submission_keys).map(e => `^${e}$|/${e}$`).join('|');
     let match_submisison_keys = e_match_submission_keys+'|'+ep_match_submission_keys;
     let images_map_entries = r_submission_keys_images.map(e => `${e}: with_entries( select(.key|match("^${e}$|/${e}$")) )|to_entries|[.[]|{(.key): .value}]`).join(',');
     //filter
@@ -313,7 +376,7 @@ async function step4(assets) {
           value = imgField_map_a_e_entries_e[1];
         }
 
-        let attachment = (value) ? findAttachment(value, subm["_attachments"], subm["_id"]) : null;
+        let attachment = (value) ? Utils.findAttachment(value, subm["_attachments"], subm["_id"]) : null;
         let action = (value) ? 'keep' : 'delete';
 
         //add image field
@@ -326,7 +389,7 @@ async function step4(assets) {
     _results = [..._results, {...asset, map}];
 
     //log
-    await writeLog(e_runlog_attachment_dir_path, e_s_attachment_id, result);
+    //await writeLog(e_runlog_attachment_dir_path, e_s_attachment_id, result);
 
   }//end: for each asset
   //msg
@@ -347,7 +410,7 @@ async function step5(assets) {
   console.log(`@ -----------------`); console.log(`@ step5: update images... start`);
 
   //get target_dir
-  let target_dir = getTargetDir();
+  let target_dir = Utils.getTargetDir();
 
   //for each asset
   let _results = [];
@@ -411,13 +474,13 @@ async function step5(assets) {
             let img_new_name = item["_id"] + '_' + e_value.value;
 
             //get paths
-            let e_dir_path = toPath([target_dir, asset.uid, assetName]);
-            let e_file_path = toPath([target_dir, asset.uid, assetName, img_new_name]);
-            let e_runlog_path = toPath([target_dir, "runlog", asset.uid, assetName, item["_id"], e_key]);
-            let e_runlog_attachment_dir_path = toPath([e_runlog_path, "attachment"]);
-            let e_runlog_attachment_file_path = toPath([e_runlog_path, "attachment", e_s_attachment_id]);
+            let e_dir_path = Utils.toPath([target_dir, asset.uid, assetName]);
+            let e_file_path = Utils.toPath([target_dir, asset.uid, assetName, img_new_name]);
+            let e_runlog_path = Utils.toPath([target_dir, "runlog", asset.uid, assetName, item["_id"], e_key]);
+            let e_runlog_attachment_dir_path = Utils.toPath([e_runlog_path, "attachment"]);
+            let e_runlog_attachment_file_path = Utils.toPath([e_runlog_path, "attachment", e_s_attachment_id]);
             
-            if(fileExists(e_file_path) && fileExists(e_runlog_attachment_file_path)) {
+            if(Utils.fileExists(e_file_path) && Utils.fileExists(e_runlog_attachment_file_path)) {
               //add status + updated_path + action_detail
               _result[e_key] = { ...item[e_key], status: 'ok', op: "saveImage", updated_path: e_file_path, action_detail: `file already exists` };
               continue;
@@ -451,18 +514,18 @@ async function step5(assets) {
         if(e_value.action === 'delete') {
           try{
             //get path
-            let e_dir_path = toPath([target_dir, asset.uid, assetName, item["_id"], e_key]);
+            let e_dir_path = Utils.toPath([target_dir, asset.uid, assetName, item["_id"], e_key]);
 
             //delete
-            let result = deletePath(e_dir_path);
+            let result = Utils.deletePath(e_dir_path);
 
             //add status + updated_path + action_detail
-            _result[e_key] = { ...item[e_key], op: "deletePath", status: 'ok', result, updated_path: e_dir_path, action_detail: result ? 'path deleted' : 'path does not exists' };
+            _result[e_key] = { ...item[e_key], op: "Utils.deletePath", status: 'ok', result, updated_path: e_dir_path, action_detail: result ? 'path deleted' : 'path does not exists' };
             continue;
 
           } catch(error) {
             //add status + error
-            _result[e_key] = { ...item[e_key], op: "deletePath", status: 'error', error: error.message };
+            _result[e_key] = { ...item[e_key], op: "Utils.deletePath", status: 'error', error: error.message };
             continue;
           }
         }
@@ -480,9 +543,9 @@ async function step5(assets) {
      * 2. Remove dirs whose name is not in the run map
      */
     //get asset path
-    let asset_path = toPath([target_dir, asset.uid, assetName]);
+    let asset_path = Utils.toPath([target_dir, asset.uid, assetName]);
     //get asset path entries
-    let asset_path_entries = getDirEntries(asset_path, {dirsOnly: true, numericOnly: true});
+    let asset_path_entries = Utils.getDirEntries(asset_path, {dirsOnly: true, numericOnly: true});
     
     //for each asset path entry:
     let records_delete_run = [];
@@ -504,8 +567,8 @@ async function step5(assets) {
            * Case: delete
            */
           try{
-            let asset_path_e = toPath([asset_path, e]);
-            let result = deletePath(asset_path_e);
+            let asset_path_e = Utils.toPath([asset_path, e]);
+            let result = Utils.deletePath(asset_path_e);
             _result = {..._result, action: 'delete', status: 'ok', deletedPath: asset_path_e, action_detail: result ? 'path deleted' : 'path does not exists'};
           } catch(error) {
             //add status + error

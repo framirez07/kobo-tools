@@ -1,14 +1,14 @@
-import configs from './configs.js';
+import globals from '../configs/globals.js';
 import { makeDirPath, deletePath, writeFile } from './utils.js';
-import { download } from './kobo-api-requests.js';
+import { download } from './kobo-api.js';
 import path from 'path';
 import fs from 'fs-extra';
 import colors from 'colors/safe.js';
 import ProgressBar from 'progress';
 
 //global configs
-const _max_retries = configs.DOWNLOAD_RETRIES || 30;
-const _req_timeout = configs.REQUEST_TIMEOUT || 15000;
+const _max_retries = globals.DOWNLOAD_RETRIES || 30;
+const _req_timeout = globals.REQUEST_TIMEOUT || 15000;
 const _download_timeout = _req_timeout+3000;
 
 /**

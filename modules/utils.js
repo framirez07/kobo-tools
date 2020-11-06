@@ -1,4 +1,4 @@
-import configs from './configs.js';
+import globals from '../configs/globals.js';
 import nodejq  from 'node-jq';
 import axios from 'axios';
 import path from 'path';
@@ -6,11 +6,11 @@ import fs from 'fs-extra';
 import csvParseSync from 'csv-parse/lib/sync.js';
 
 //global configs
-const _token = configs.TOKEN || "";
-const _max_retries = configs.REQUEST_RETRIES || 20;
-const _req_timeout = configs.REQUEST_TIMEOUT || 15000;
+const _token = globals.TOKEN || "";
+const _max_retries = globals.REQUEST_RETRIES || 20;
+const _req_timeout = globals.REQUEST_TIMEOUT || 15000;
 const _con_timeout = _req_timeout+3000;
-const _target_dir = configs.TARGET_DIR || "";
+const _target_dir = globals.TARGET_DIR || "";
 
 /**
  * get  axios get request with options and
@@ -223,8 +223,20 @@ export function fileExists(filePath) {
   }
 }
 
+export function dirExists(dirPath) {
+  try {
+    let _path = path.resolve(dirPath);
+    fs.accessSync(_path, fs.constants.F_OK);
+    
+    let stats = fs.lstatSync(_path);
+    if (stats.isDirectory()) return true;
+    else return false;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function makeDirPath(dirPath) {
-  // resolve path
   let _path = null;
   try {
     _path = path.resolve(dirPath);
@@ -233,17 +245,11 @@ export function makeDirPath(dirPath) {
     throw new Error(`trying to resolve path fails: ${dirPath}`);
   }
 
-  // check if path exists
-  let exists = null;
-  try {
-    fs.accessSync(_path, fs.constants.F_OK);
-    exists = true;
-  } catch (e) {
-    exists = false;
-  }
+  // if path exists
+  if(dirExists(_path)) return false;
 
   //make path
-  if(!exists) try {
+  try {
     fs.mkdirSync(_path, { recursive: true, mode: 0o1775 });
     return _path;
   } catch (e) {
@@ -339,17 +345,18 @@ export function getDirEntries(t_path, options) {
 export function getCurrentTimestamp() {
   let d = new Date(Date.now());
   let yyyy = d.getFullYear();
-  let mm = (d.getMonth() + 1);
+  let MM = (d.getMonth() + 1);
   let dd = d.getDate();
   let hh = d.getHours();
+  let mm = d.getMinutes();
   let ss = d.getSeconds();
 
-  if (mm.length < 2) 
-      mm = '0' + mm;
+  if (MM.length < 2) 
+      MM = '0' + mm;
   if (dd.length < 2) 
       dd = '0' + dd;
 
-  return [yyyy, mm, dd, hh, ss].join('-');
+  return [yyyy, MM, dd, hh, mm, ss].join('-');
 }
 
 /**
