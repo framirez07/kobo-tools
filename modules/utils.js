@@ -1,9 +1,12 @@
 import globals from '../configs/globals.js';
+import { check } from './checks.js';
 import nodejq  from 'node-jq';
 import axios from 'axios';
-import path from 'path';
+import { resolve, join } from 'path';
 import fs from 'fs-extra';
 import csvParseSync from 'csv-parse/lib/sync.js';
+import colors from 'colors/safe.js';
+import sjcl from 'sjcl';
 
 //global configs
 const _token = globals.TOKEN || "";
@@ -180,7 +183,7 @@ export function getTargetDir() {
     //check
     if(typeof _target_dir !== 'string') throw new Error('expected string in @TARGET_DIR');
 
-    let t_dir = path.resolve(_target_dir);
+    let t_dir = resolve(_target_dir);
     if(fileExists(t_dir)) return t_dir; //exists
     else {
       //msg
@@ -194,13 +197,13 @@ export function getTargetDir() {
   } else { //case: default target
     
     let d = './out_'+getCurrentTimestamp();
-    let t_dir = path.resolve(d);
+    let t_dir = resolve(d);
     let max_tries = 100;
     let tries = 1;
 
     while(fileExists(t_dir)&&(tries<=max_tries)) {
       d = './out_'+getCurrentTimestamp()+'-'+String(tries);
-      t_dir = path.resolve(d);
+      t_dir = resolve(d);
       tries++;
     }
     //check
@@ -215,9 +218,9 @@ export function getTargetDir() {
 export function fileExists(filePath) {
   // check if the file exists
   try {
-    let _path = path.resolve(filePath);
+    let _path = resolve(filePath);
     fs.accessSync(_path, fs.constants.F_OK);
-    return true;
+    return fs.lstatSync(_path).isFile();
   } catch (e) {
     return false;
   }
@@ -225,12 +228,20 @@ export function fileExists(filePath) {
 
 export function dirExists(dirPath) {
   try {
-    let _path = path.resolve(dirPath);
+    let _path = resolve(dirPath);
+    fs.accessSync(_path, fs.constants.F_OK);    
+    return fs.lstatSync(_path).isDirectory();
+  } catch (e) {
+    return false;
+  }
+}
+
+export function pathExists(path) {
+  // check if the file exists
+  try {
+    let _path = resolve(path);
     fs.accessSync(_path, fs.constants.F_OK);
-    
-    let stats = fs.lstatSync(_path);
-    if (stats.isDirectory()) return true;
-    else return false;
+    return true;
   } catch (e) {
     return false;
   }
@@ -239,7 +250,7 @@ export function dirExists(dirPath) {
 export function makeDirPath(dirPath) {
   let _path = null;
   try {
-    _path = path.resolve(dirPath);
+    _path = resolve(dirPath);
   } catch (e) {
     console.error(e);
     throw new Error(`trying to resolve path fails: ${dirPath}`);
@@ -266,18 +277,21 @@ export function writeFile(filePath, data) {
   //resolve path
   let _path = null;
   try {
-    _path = path.resolve(filePath);
+    _path = resolve(filePath);
   } catch (e) {
     console.error(e);
-    throw new Error(`trying to resolve path fails: ${filePath}`);
+    throw new Error(`trying to resolve path fails: ${filePath} - error: ${e.message}`);
   }
 
   //write
   try {
+    /**
+     * Write new file even if it exists.
+     */
     fs.writeFileSync(_path, data, {mode: 0o1664});
     return _path;
   } catch (e) {
-    throw new Error(`trying to write file fails: ${_path}`);
+    throw new Error(`trying to write file fails: ${_path} - error: ${e.message}`);
   }
 }
 
@@ -288,9 +302,9 @@ export function deletePath(d_path) {
   // resolve path
   let _path = null;
   try {
-    _path = path.resolve(d_path);
+    _path = resolve(d_path);
   } catch (e) {
-    throw new Error(`trying to resolve path fails: ${d_path} - error: ${e}`);
+    throw new Error(`trying to resolve path fails: ${d_path} - error: ${e.message}`);
   }
   
   // check if the file exists
@@ -305,13 +319,42 @@ export function deletePath(d_path) {
     fs.rmSync(_path, {force: true, recursive: true, maxRetries: 10, retryDelay: 500});
     return true;
   } catch (e) {
-    throw new Error("trying to delete path fails - error: " + e);
+    throw new Error("trying to delete path fails - error: " + e.message);
+  }
+}
+
+export function mvFile(oldPath, newPath) {
+  //internal
+  check(oldPath, 'mustExists', 'string');
+  check(newPath, 'mustExists', 'string');
+  
+  // resolve path
+  let _old_path = null;
+  try {
+    _old_path = resolve(oldPath);
+  } catch (e) {
+    throw new Error(`trying to resolve path fails: ${oldPath} - error: ${e.message}`);
+  }
+  // resolve path
+  let _new_path = null;
+  try {
+    _new_path = resolve(newPath);
+  } catch (e) {
+    throw new Error(`trying to resolve path fails: ${newPath} - error: ${e.message}`);
+  }
+
+  // rename
+  try {
+    fs.renameSync(_old_path, _new_path);
+    return true;
+  } catch (e) {
+    throw new Error("trying to rename path fails - error: " + e.message);
   }
 }
 
 export function toPath(entries) {
   let _entries = entries.map(e => String(e));
-  return path.join(..._entries);
+  return join(..._entries);
 }
 
 export function getDirEntries(t_path, options) {
@@ -434,7 +477,7 @@ function getSubmissionIdsFromCsv(submissionIdsCsv, idColumn, delimiter) {
   let records = null;
   let _idColumn = (idColumn) ? idColumn : 'id';
   let _delimiter = (delimiter) ? delimiter : ',';
-  let _file = path.resolve(submissionIdsCsv);
+  let _file = resolve(submissionIdsCsv);
   let ids = [];
   let errors = [];
 
@@ -610,7 +653,7 @@ export function parseJSONFile(file) {
   
   let data = null;
   let o = null;
-  let _file = path.resolve(file);
+  let _file = resolve(file);
 
   //check
   if(!fileExists(_file)) throw new Error(`file does not exists: ${_file}`);
@@ -630,4 +673,132 @@ export function parseJSONFile(file) {
   }
 
   return o;
+}
+
+export function printReportCounters(report) {
+  //internal
+  check(report, 'mustExists', 'array');
+
+  for(let i=0; i<report.length; i++) {
+    let counters = report[i].counters;
+    //internal
+    check(counters, 'mustExists', 'object');
+    let warnKeys = ['totalWarnings', 'warnings', 'totalNones'];
+
+    //print counters
+    let e = Object.entries(counters);
+    for(let j=0; j<e.length; j++) {
+      if(j === 0) process.stdout.write('  ');
+      process.stdout.write(colors.white(e[j][0]) + ': ');
+      if(warnKeys.includes(e[j][0])) 
+           process.stdout.write(colors.yellow.bold(e[j][1]));
+      else process.stdout.write(colors.brightWhite.bold(e[j][1]));
+      if(j+1 < e.length) process.stdout.write(', ');
+    }
+    process.stdout.write('\n');
+  }
+}
+
+export function printWarnings(warnings) {
+  //internal
+  check(warnings, 'mustExists', 'array');
+
+  //print warnings
+  process.stdout.write('    !warnings:\n');
+  for(let i=0; i<warnings.length; i++) {
+    process.stdout.write(colors.white(`      ${i+1}: `) + colors.yellow(warnings[i]));
+    if(i+1 < warnings.length) process.stdout.write(',\n');
+  }
+  process.stdout.write('\n');
+}
+
+export function getHash(data) {
+  //internal
+  check(data, 'mustExists', 'string');
+  try {
+    return sjcl.hash.sha256.hash(data);
+  } catch (error) {
+    throw new Error(`getHash operation failed:` + e.message);
+  }
+}
+
+export function getFileHash(file) {
+  //internal
+  check(file, 'mustExists', 'string');
+
+  let data = null;
+  let o = null;
+  let _file = null;
+
+  //resolve
+  try {
+    _file = resolve(file);
+  } catch (e) {
+    throw new Error(`getFileHash operation failed: trying to resolve path fails: ${file}`);
+  }
+
+  //check
+  if(!fileExists(_file)) throw new Error(`getFileHash operation failed: file does not exists: ${_file}`);
+
+  //read
+  try {
+    data = fs.readFileSync(_file, 'utf8');
+  } catch (e) {
+    throw new Error(`getFileHash operation failed: read failed: ${_file} - ` + e.message);
+  }
+
+  //hash
+  try {
+    return sjcl.hash.sha256.hash(data);
+  } catch (e) {
+    throw new Error(`getFileHash operation failed: hash failed - ` + e.message);
+  }
+}
+
+export function isValidHash(data, hash) {
+  //internal
+  check(data, 'mustExists', 'string');
+  check(hash, 'mustExists', 'array');
+  
+  try {
+    //get data hash
+    let _hash = sjcl.hash.sha256.hash(data)
+    //internal
+    check(_hash, 'mustExists', 'array');
+
+    //check
+    if(_hash.length !== hash.length) return false;
+    
+    //check
+    for(let i=0; i<hash.length; i++) {
+      if(_hash[i] !== hash[i]) return false;
+    }
+    return true;
+  } catch (e) {
+    throw new Error(`isValidHash operation failed: ` + e.message);
+  }
+}
+
+export function isValidFileHash(file, hash) {
+  //internal
+  check(file, 'mustExists', 'string');
+  check(hash, 'mustExists', 'array');
+
+  try {
+    //get file hash
+    let _hash = getFileHash(file);
+    //internal
+    check(_hash, 'mustExists', 'array');
+
+    //check
+    if(_hash.length !== hash.length) return false;
+    
+    //check
+    for(let i=0; i<hash.length; i++) {
+      if(_hash[i] !== hash[i]) return false;
+    }
+    return true;
+  } catch (e) {
+    throw new Error(`isValidFileHash operation failed: ` + e.message);
+  }
 }

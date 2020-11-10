@@ -4,6 +4,9 @@ import axios from 'axios';
 import colors from 'colors/safe.js';
 import ProgressBar from 'progress';
 
+const nextColor = colors.grey;
+const retryMsgColor = colors.grey;
+
 /**
  * getAssets  get assets info from @endpoint /assets/.
  * 
@@ -22,12 +25,13 @@ export async function getAssets(options) {
   let results = [];
 
   //progress
-  let bar = new ProgressBar('  [:bar] ' + colors.dim(next) + colors.white('  :percent '), {
+  let bar = new ProgressBar('  [:bar] ' + nextColor(next) + colors.white('  :percent '), {
     complete: '=',
     incomplete: ' ',
     width: 20,
     total: 100 //will be updated with res.data.count
   });
+  bar.tick(0);
 
   //counters
   let assetsCount = 0;
@@ -43,7 +47,7 @@ export async function getAssets(options) {
     let response = null;
     let done=false;
     let retries = 1;
-    bar.fmt = '  [:bar] ' + colors.dim(next) + colors.white('  :percent ');
+    bar.fmt = '  [:bar] ' + nextColor(next) + colors.white('  :percent ');
     
     //request cycle
     while(!done && retries<=options.maxRequestRetries && !response) {
@@ -87,7 +91,7 @@ export async function getAssets(options) {
       .catch((error) => {
         //msg
         process.stdout.write("  " + colors.grey(error.message) + "\n");
-        console.log(colors.dim('    resquest failed on try:'), retries, "/", options.maxRequestRetries);
+        console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries);
         retries++;
       });
       //clear
@@ -106,10 +110,12 @@ export async function getAssets(options) {
         apiOp: 'getAssets',
         status: 'failed',
         detail: `max retries of ${options.maxRequestRetries} reached at endpoint: ${next}`,
-        assetsCount,
-        assetsFetched,
-        assetsFiltered,
-        totalResults,
+        counters: {
+          assetsCount,
+          assetsFetched,
+          assetsFiltered,
+          totalResults
+        }
       };
       report.push(o);
       return {results, report, status};
@@ -151,11 +157,13 @@ export async function getAssets(options) {
   let o = {
     apiOp: 'getAssets',
     status: 'complete',
-    detail: `all assets fetched`,
-    assetsCount,
-    assetsFetched,
-    assetsFiltered,
-    totalResults,
+    detail: `assets fetched`,
+    counters: {
+      assetsCount,
+      assetsFetched,
+      assetsFiltered,
+      totalResults
+    }
   };
   report.push(o);
 
@@ -169,65 +177,116 @@ export async function getAssets(options) {
  * @param {object} options field selection options. 
  */
 export async function getAssetInfo(uid, options) {
-  //check
-  if(!options.apiServerUrl || typeof options.apiServerUrl !== 'string') throw new Error('expected string in @URL');
-  if(!uid||typeof uid !== 'string') return null;
+  //internal
+  check(uid, 'mustExists', 'string');
+  check(options, 'mustExists', 'object');
+  check(options.apiServerUrl, 'mustExists', 'string');
+  check(options.maxRequestRetries, 'defined', 'number');
+  check(options.requestTimeout, 'defined', 'number');
+  check(options.connectionTimeout, 'defined', 'number');
+
   //endpoint
   let next = `${options.apiServerUrl}/assets/${uid}`;
   let results = [];
 
-  //msg
-  process.stdout.write("@@ next: " + next);
+  //progress
+  let bar = new ProgressBar('  [:bar] ' + nextColor(next) + colors.white('  :percent '), {
+    complete: '=',
+    incomplete: ' ',
+    width: 20,
+    total: options.connectionTimeout*2/1000 //virtual
+  });
+  bar.tick(0);
+  
+  //counters
+  let assetsCount = 1;
+  let assetsFetched = 0;
+  let assetsFiltered = 0;
+  let totalResults = 0;
 
   //init
-  let result = null;
+  let response = null;
   let done=false;
   let retries = 1;
 
   //request cycle
-  while(!done && retries<=options.maxRequestRetries && !result) {
+  while(!done && retries<=options.maxRequestRetries && !response) {
+    //tick interval (virtual progress)
+    let tickinterval = setInterval(() => {if((bar.curr/bar.total) < .8) bar.tick(1);}, 300);
 
     //request options
     let CancelToken = axios.CancelToken;
     let source = CancelToken.source();
-    let options = {
-      headers: {'Authorization': `Token ${options.token}`}, 
+    
+    //headers
+    let headers = {};
+      //header: auth token
+      if(options.token) headers['Authorization'] = `Token ${options.token}`;
+
+    let req_options = {
+      headers,
       timeout: options.requestTimeout,
       cancelToken: source.token
     };
-
+    
     //cancelation timeout
     let timeout = setTimeout(() => {
       source.cancel(`connection timeout of ${options.connectionTimeout}ms exceeded`);
     }, options.connectionTimeout);
 
-    result = await axios.get(next, options)
+    //request
+    response = await axios.get(next, req_options)
     .then(
       //resolved
       (response) => {
-        //check
-        if(!response||!response.data){done = true; throw new Error('no response data')};
-        
+        //internal
+        check(response, 'mustExists', 'object');
+        check(response.data, 'mustExists', 'object');
+                  
         //ok
-        process.stdout.write("... done\n");
-        return response.data;
+        return response;
       },
       //rejected
       (error) => { throw error })
     .catch((error) => {
       //msg
-      if(retries===1) process.stdout.write("\n");
-      console.log("@@try:", retries, "/", options.maxRequestRetries, " - error: ", error.message);
-      //add
+      process.stdout.write("  " + colors.grey(error.message) + "\n");
+      console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries);
       retries++;
     });
     //clear
     clearTimeout(timeout);
+    clearInterval(tickinterval);
 
-  }//end: while
-  //check
-  if(result===null||result===undefined) return null;
-  if(typeof result !== 'object') return null;
+  }//end: while: request cycle
+  //check: max retries reached
+  if(!response) {
+    /**
+     * Report
+     */
+    let status = false;
+    let report = [];
+    assetsFiltered = assetsFetched - results.length;
+    totalResults = results.length;
+    let o = {
+      apiOp: 'getAssetInfo',
+      status: 'failed',
+      detail: `max retries of ${options.maxRequestRetries} reached at endpoint: ${next}`,
+      counters: {
+        assetsCount,
+        assetsFetched,
+        assetsFiltered,
+        totalResults
+      }
+    };
+    report.push(o);
+    return {results, report, status};
+  }
+  //update counters
+  assetsFetched++;
+
+  //update progress: complete
+  while(!bar.complete) bar.tick(1);
 
   /**
    * -------------
@@ -235,16 +294,35 @@ export async function getAssetInfo(uid, options) {
    * -------------
    */
   let filtered_result = [];
-
-  if(options&&typeof options === 'object'&& options.filters&&typeof options.filters === 'object') {
-    filtered_result = await applyFilters(options.filters, [result]);
+  if(options.resFilters && typeof options.resFilters === 'object') {
+    filtered_result = await applyFilters(options.resFilters, [response.data]);
   } else {
-    filtered_result = [result];
+    filtered_result = [response.data];
   }
   //join results
-  results = [...filtered_result];
-  
-  return results;
+  results = [...results, ...filtered_result];
+
+  /**
+   * Report
+   */
+  let status = true;
+  let report = [];
+  assetsFiltered = assetsFetched - results.length;
+  totalResults = results.length;
+  let o = {
+    apiOp: 'getAssetInfo',
+    status: 'complete',
+    detail: `asset fetched`,
+    counters: {
+      assetsCount,
+      assetsFetched,
+      assetsFiltered,
+      totalResults
+    }
+  };
+  report.push(o);
+
+  return {results, report, status};
 }
 
 
@@ -256,33 +334,116 @@ export async function getAssetInfo(uid, options) {
  * @param {object} options field selection options. 
  */
 export async function getSubmissions(uid, options) {
-  //check
-  if(!options.apiServerUrl || typeof options.apiServerUrl !== 'string') throw new Error('expected string in @URL');
-  if(!uid||typeof uid !== 'string') return null;
+  //internal
+  check(uid, 'mustExists', 'string');
+  check(options, 'mustExists', 'object');
+  check(options.apiServerUrl, 'mustExists', 'string');
+  check(options.maxRequestRetries, 'defined', 'number');
+  check(options.requestTimeout, 'defined', 'number');
+  check(options.connectionTimeout, 'defined', 'number');
+
   //endpoint
   let next = `${options.apiServerUrl}/assets/${uid}/submissions/`;
+  let results = [];
 
-  //msg
-  process.stdout.write("@@ next: " + next);
+  //progress
+  let bar = new ProgressBar('  [:bar] ' + nextColor(next) + colors.white('  :percent '), {
+    complete: '=',
+    incomplete: ' ',
+    width: 20,
+    total: options.connectionTimeout*2/1000 //virtual
+  });
+  bar.tick(0);
+
+  //counters
+  let assetsCount = 1;
+  let assetsFetched = 0;
+  let assetsFiltered = 0;
+  let totalResults = 0;
 
   //init
-  let result = null;
+  let response = null;
   let done=false;
   let retries = 1;
 
   //request cycle
-  while(!done && retries<=options.maxRequestRetries && !result) {
-    result = await get(next).catch((error) => {
+  while(!done && retries<=options.maxRequestRetries && !response) {
+    //tick interval (virtual progress)
+    let tickinterval = setInterval(() => {if((bar.curr/bar.total) < .8) bar.tick(1);}, 300);
+
+    //request options
+    let CancelToken = axios.CancelToken;
+    let source = CancelToken.source();
+    
+    //headers
+    let headers = {};
+      //header: auth token
+      if(options.token) headers['Authorization'] = `Token ${options.token}`;
+
+    let req_options = {
+      headers,
+      timeout: options.requestTimeout,
+      cancelToken: source.token
+    };
+    
+    //cancelation timeout
+    let timeout = setTimeout(() => {
+      source.cancel(`connection timeout of ${options.connectionTimeout}ms exceeded`);
+    }, options.connectionTimeout);
+
+    //request
+    response = await axios.get(next, req_options)
+    .then(
+      //resolved
+      (response) => {
+        //internal
+        check(response, 'mustExists', 'object');
+        check(response.data, 'mustExists', 'array');
+                  
+        //ok
+        return response;
+      },
+      //rejected
+      (error) => { throw error })
+    .catch((error) => {
       //msg
-      if(retries===1) process.stdout.write("\n");
-      console.log("@@ try:", retries, "/", options.maxRequestRetries, " - error: ", error.message);
-      //add
+      process.stdout.write("  " + colors.grey(error.message) + "\n");
+      console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries);
       retries++;
     });
-  }//end: while
-  //check
-  if(result===null||result===undefined) return null;
-  if(!Array.isArray(result)) return null;
+    //clear
+    clearTimeout(timeout);
+    clearInterval(tickinterval);
+  }//end: while: request cycle
+  //check: max retries reached
+  if(!response) {
+    /**
+     * Report
+     */
+    let status = false;
+    let report = [];
+    assetsFiltered = assetsFetched - results.length;
+    totalResults = results.length;
+    let o = {
+      apiOp: 'getSubmissions',
+      status: 'failed',
+      detail: `max retries of ${options.maxRequestRetries} reached at endpoint: ${next}`,
+      counters: {
+        assetsCount,
+        assetsFetched,
+        assetsFiltered,
+        totalResults
+      }
+    };
+    report.push(o);
+    return {results, report, status};
+  }
+  //update counters
+  assetsFetched++;
+
+  //update progress: complete
+  while(!bar.complete) bar.tick(1);
+
 
   /**
    * -------------
@@ -290,12 +451,35 @@ export async function getSubmissions(uid, options) {
    * -------------
    */
   let filtered_result = [];
-  if(options&&typeof options === 'object'
-  && options.filters&&typeof options.filters === 'object') {
-    filtered_result = await applyFilters(options.filters, result);
-  } else { filtered_result = result; }
+  if(options.resFilters && typeof options.resFilters === 'object') {
+    filtered_result = await applyFilters(options.resFilters, response.data);
+  } else {
+    filtered_result = [...response.data];
+  }
+  //join results
+  results = [...results, ...filtered_result];
 
-  return [...filtered_result];
+  /**
+   * Report
+   */
+  let status = true;
+  let report = [];
+  assetsFiltered = assetsFetched - results.length;
+  totalResults = results.length;
+  let o = {
+    apiOp: 'getSubmissions',
+    status: 'complete',
+    detail: `asset fetched`,
+    counters: {
+      assetsCount,
+      assetsFetched,
+      assetsFiltered,
+      totalResults
+    }
+  };
+  report.push(o);
+
+  return {results, report, status};
 }
 
 /**
@@ -306,10 +490,13 @@ export async function getSubmissions(uid, options) {
  * @param {object} options 
  */
 export async function download(url, options) {
-  //check
-  if(!options.mediaServerUrl || typeof options.mediaServerUrl !== 'string') throw new Error('expected string in @MEDIA_URL');
-  if(!url || typeof url !== 'string') throw new Error('expected string in @url');
-  if(options && typeof options !== 'object') throw new Error('expected object in @options');
+  //internal
+  check(url, 'mustExists', 'string');
+  check(options, 'mustExists', 'object');
+  check(options.mediaServerUrl, 'mustExists', 'string');
+  check(options.maxRequestRetries, 'defined', 'number');
+  check(options.requestTimeout, 'defined', 'number');
+  check(options.connectionTimeout, 'defined', 'number');
 
   //options
   let noMessages = (options&&options.noMessages) ? options.noMessages : false; 
@@ -318,7 +505,7 @@ export async function download(url, options) {
   let next = `${options.mediaServerUrl}/${url}`;
 
   //msg
-  if(!noMessages) console.log(colors.bold.brightBlue('  next: ') + colors.dim(next));
+  if(!noMessages) console.log(colors.bold.brightBlue('  next: ') + nextColor(next));
 
   //init
   let result = null;
@@ -327,23 +514,31 @@ export async function download(url, options) {
 
   //request cycle
   while(!done && retries<=options.maxRequestRetries && !result) {
-
     //request options
     let CancelToken = axios.CancelToken;
     let source = CancelToken.source();
-    let options = {
-      headers: {'Authorization': `Token ${options.token}`, 'Connection': 'keep-alive'},
-      responseType: 'stream',
-      timeout: options.requestTimeout,
-      cancelToken: source.token
+    
+    //headers
+    let headers = {
+      'Connection': 'keep-alive'
     };
+      //header: auth token
+      if(options.token) headers['Authorization'] = `Token ${options.token}`;
 
+    let req_options = {
+      headers,
+      timeout: options.requestTimeout,
+      cancelToken: source.token,
+      responseType: 'stream',
+    };
+    
     //cancelation timeout
     let timeout = setTimeout(() => {
       source.cancel(`connection timeout of ${options.connectionTimeout}ms exceeded`);
     }, options.connectionTimeout);
 
-    result = await axios.get(next, options)
+    //request    
+    result = await axios.get(next, req_options)
     .then(
       //resolved
       (response) => {
@@ -356,13 +551,13 @@ export async function download(url, options) {
       //rejected
       (error) => {
         //msg
-        console.log(colors.dim('    resquest failed on try:'), retries, "/", options.maxRequestRetries, " - error: ", colors.green(error.message));
+        console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries, " - error: ", colors.green(error.message));
         //add
         retries++;
       })
     .catch((error) => {
       //msg
-      console.log(colors.dim('    resquest failed on try:'), retries, "/", options.maxRequestRetries, " - error: ", colors.green(error.message));
+      console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries, " - error: ", colors.green(error.message));
       //add
       retries++;
     });

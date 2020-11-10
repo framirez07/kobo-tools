@@ -1,6 +1,6 @@
 import { parseJSONFile, fileExists, dirExists, makeDirPath, getCurrentTimestamp } from './utils.js';
 import globals from '../configs/globals.js';
-import { check } from './checks.js';
+import { check, confirm, isOfType } from './checks.js';
 import csvParseSync from 'csv-parse/lib/sync.js';
 import fs from 'fs-extra';
 import { resolve, join, parse } from 'path';
@@ -129,6 +129,18 @@ export function getConfigs(program, mainDir) {
   //token
   configs.token = program.token || process.env.KT_TOKEN || runConfigs.token || globals.TOKEN || '';
 
+  //deleteImages
+  configs.deleteImages = false; //default
+  if(confirm(program.deleteImages, "defined")) configs.deleteImages = true;
+  else if(confirm(process.env.KT_DELETE_IMAGES, "defined")) {
+    if(process.env.KT_DELETE_IMAGES.toLowerCase() === 'true') configs.deleteImages = true;
+    else if(process.env.KT_DELETE_IMAGES.toLowerCase() === 'false') configs.deleteImages = false;
+    else throw new Error(`KT_DELETE_IMAGES is defined, but has an invalid value: ${process.env.KT_DELETE_IMAGES}, expected boolean`);}
+  else if(confirm(runConfigs.deleteImages, "defined")) configs.deleteImages = runConfigs.deleteImages;
+  else if(confirm(globals.DELETE_IMAGES, "defined")) {
+    if(!isOfType(globals.DELETE_IMAGES, 'boolean')) throw new Error(`gobal config DELETE_IMAGES is defined, but has an invalid value: ${globals.DELETE_IMAGES}, expected boolean`);
+  }
+
   //maxRequestRetries
   configs.maxRequestRetries = program.maxRequestRetries || process.env.KT_MAX_REQUEST_RETRIES || runConfigs.maxRequestRetries || globals.MAX_REQUEST_RETRIES || 20;
   
@@ -159,6 +171,7 @@ export function getConfigs(program, mainDir) {
  * setupOutputDir  Set up output dirs tree
  * 
  * output/
+ *      .attachments_map/
  *      images/
  *      data/
  *      runs/
@@ -166,9 +179,11 @@ export function getConfigs(program, mainDir) {
  *                    logs/
  *                    maps/
  *                    steps/
+ *                    images_deleted/
  * 
  * keys added to configs:
  *  outputPath
+ *  attachmentsMap
  *  imagesPath
  *  dataPath
  *  runsPath
@@ -176,6 +191,7 @@ export function getConfigs(program, mainDir) {
  *  logsPath
  *  mapsPath
  *  stepsPath
+ *  imagesDeletedPath
  * 
  */
 export function setupOutputDir(configs) {
@@ -221,6 +237,7 @@ export function setupOutputDir(configs) {
    * Set up runs dirs tree
    * 
    * output/
+   *      .attachments_map/
    *      images/
    *      data/
    *      runs/
@@ -228,9 +245,13 @@ export function setupOutputDir(configs) {
    *                    logs/
    *                    maps/
    *                    steps/
+   *                    images_deleted/
    * 
    *  
    */
+  configs.attachmentsMap = resolve(join(configs.outputPath, ".attachments_map"));
+  makeDirPath(configs.attachmentsMap);
+
   configs.imagesPath = resolve(join(configs.outputPath, "images"));
   makeDirPath(configs.imagesPath);
 
@@ -266,7 +287,11 @@ export function setupOutputDir(configs) {
   configs.stepsPath = resolve(join(configs.currentRunPath, "steps"));
   makeDirPath(configs.stepsPath);
 
-  console.log("@@ configs: ", configs);
+  configs.imagesDeletedPath = resolve(join(configs.currentRunPath, "images_deleted"));
+  makeDirPath(configs.imagesDeletedPath);
+
+  console.log(configs)
+  return configs;
 }
 
 /**
@@ -440,7 +465,7 @@ function checkRunConfigs(configs) {
 
   let errors = [];
   let valid_keys = ['filters', 'token', 'apiServerUrl', 'mediaServerUrl', 'outputDir', 'maxRequestRetries',
-                    'maxDownloadRetries', 'requestTimeout', 'connectionTimeout', 'downloadTimeout'];
+                    'maxDownloadRetries', 'requestTimeout', 'connectionTimeout', 'downloadTimeout', 'deleteImages'];
   let valid_filters_keys = ['assetId', 'submissionIdsCsv', 'submissionIds'];
 
   //check: keys
@@ -476,6 +501,9 @@ function checkRunConfigs(configs) {
   } catch(error) {errors.push(error.message)}
   try {
     check(configs.downloadTimeout, 'ifDefined', 'number');
+  } catch(error) {errors.push(error.message)}
+  try {
+    check(configs.deleteImages, 'ifDefined', 'boolean');
   } catch(error) {errors.push(error.message)}
 
   //check: filters

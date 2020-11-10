@@ -32,6 +32,41 @@ export function check(arg, condition, expectedType) {
 }
 
 /**
+ * confirm  Do checks to arguments. Returns true if the check pass,
+ * otherwise false.
+ * @param {any} arg argument to check.
+ * @param {string} condition check condition.
+ */
+export function confirm(arg, condition) {
+  //internal check
+  if(!condition || typeof condition !== 'string') throw new Error(`expected string in @condition: ${condition}`);
+
+  switch(condition) {
+    case 'exists':
+      if(!arg) return false;
+      break;
+    case 'notExists':
+      if(arg) return false;
+      break;
+    case 'null':
+      if(arg !== null ) return false;
+      break;
+    case 'notNull':
+      if(arg === null ) return false;
+      break;
+    case 'defined':
+      if(arg === undefined) return false;
+      break;
+    case 'notdefined':
+      if(arg !== undefined) return false;
+      break;
+    default:
+      throw new Error(`unknown @condition: ${condition}`);
+  }
+  return true;
+}
+
+/**
  * isOfType  Check if the @arg is of type @type.
  * @param {any} arg argument to check.
  * @param {string} type type which will be check on @arg.

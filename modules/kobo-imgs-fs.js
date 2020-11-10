@@ -1,5 +1,6 @@
 import globals from '../configs/globals.js';
 import { makeDirPath, deletePath, writeFile } from './utils.js';
+import { check } from './checks.js';
 import { download } from './kobo-api.js';
 import path from 'path';
 import fs from 'fs-extra';
@@ -95,11 +96,16 @@ export async function writeStream(dir_path, file_name, readStream, contentLength
  * @param {string} i_path path to which save on the downloaded image.
  * @param {string} e_name name of the image that will be saved.
  */
-export async function saveImage(i_url, i_path, i_name) {
-  //check
-  if(!i_url || typeof i_url !== 'string') throw new Error('expected string in @i_url');
-  if(!i_path || typeof i_path !== 'string') throw new Error('expected string in @i_path');
-  if(!i_name || typeof i_name !== 'string') throw new Error('expected string in @i_name');
+export async function saveImage(i_url, i_path, i_name, options) {
+  //internal
+  check(i_url, 'mustExists', 'string');
+  check(i_path, 'mustExists', 'string');
+  check(i_name, 'mustExists', 'string');
+  check(options, 'mustExists', 'object');
+  check(options.mediaServerUrl, 'mustExists', 'string');
+  check(options.maxRequestRetries, 'defined', 'number');
+  check(options.requestTimeout, 'defined', 'number');
+  check(options.connectionTimeout, 'defined', 'number');
   
   //init
   let result = null;
@@ -111,7 +117,7 @@ export async function saveImage(i_url, i_path, i_name) {
     /**
      * download
      */
-    let d_results = await download(i_url, {noMessages: (retries > 1)});
+    let d_results = await download(i_url, {...options, noMessages: (retries > 1)});
     //internal check
     if(!d_results) throw new Error(`download could not be started at url: ${i_url}`);
     if(!Array.isArray(d_results)) throw new Error(`expected array in @results: ${d_results}`); //convention
