@@ -19,6 +19,7 @@
   "homepage": "https://github.com/framirez07/kobo-tools#readme",
   "dependencies": {
     "axios": "^0.21.0",
+    "canvas": "^2.6.1",
     "colors": "^1.4.0",
     "commander": "^2.20.3",
     "csv": "^5.3.2",

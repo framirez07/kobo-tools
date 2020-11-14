@@ -498,14 +498,8 @@ export async function download(url, options) {
   check(options.requestTimeout, 'defined', 'number');
   check(options.connectionTimeout, 'defined', 'number');
 
-  //options
-  let noMessages = (options&&options.noMessages) ? options.noMessages : false; 
-  
   //endpoint
   let next = `${options.mediaServerUrl}/${url}`;
-
-  //msg
-  if(!noMessages) console.log(colors.bold.brightBlue('  next: ') + nextColor(next));
 
   //init
   let result = null;

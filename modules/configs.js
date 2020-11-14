@@ -290,7 +290,7 @@ export function setupOutputDir(configs) {
   configs.imagesDeletedPath = resolve(join(configs.currentRunPath, "images_deleted"));
   makeDirPath(configs.imagesDeletedPath);
 
-  console.log(configs)
+  //console.log(configs)
   return configs;
 }
 

@@ -32,11 +32,12 @@ export async function writeStream(dir_path, file_name, readStream, contentLength
   let bytesRead = 0;
 
   const writer = fs.createWriteStream(_file_path);
-  const bar = new ProgressBar('  downloading [:bar] ' + colors.dim(':rate/bps ') + colors.white(':percent '), {
+  const bar = new ProgressBar('  downloading [:bar] ' + colors.white(':percent ') + colors.grey(file_name), {
     complete: '=',
     incomplete: ' ',
     width: 20,
-    total: contentLength
+    total: contentLength,
+    clear: true
   });
 
   let _result = await new Promise((resolve, reject) => {
@@ -150,7 +151,7 @@ export async function saveImage(i_url, i_path, i_name, options) {
     //check
     if(w_result.bytesRead !== w_result.contentLength){
       //msg
-      console.log(colors.dim('\n    download failed on try:'), retries, "/", _max_retries, " - error: ", colors.green('incomplete download'));
+      console.log(colors.grey('\n    download failed on try:'), retries, "/", _max_retries, " - error: ", colors.green('incomplete download'));
       //add
       retries++;
     } else {

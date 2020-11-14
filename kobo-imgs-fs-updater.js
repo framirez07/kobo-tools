@@ -3,6 +3,7 @@ import {saveImage, writeLog} from './modules/kobo-imgs-fs.js';
 import * as Utils from './modules/utils.js';
 import * as Configs from './modules/configs.js'
 import { check, confirm, isOfType } from './modules/checks.js';
+import { ImageCleaner } from './modules/image-cleaner.js';
 import program from 'commander';
 import colors from 'colors/safe.js';
 import { dirname, resolve, join } from 'path';
@@ -12,7 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const assetIdColor = colors.cyan.dim.bold;
-const indexIndicatorColor = colors.cyan;
+const indexIndicatorColor = colors.cyan.bold;
+const indexIndicatorSecondaryColor = colors.magenta.bold;
 const separatorColor = colors.grey.bold;
 const titleColor = colors.brightCyan;
 
@@ -56,12 +58,18 @@ try {
 async function start() {
   let results = {};
   let steps = [step1, step2, step3, step4, step5];
+
+  //title: (asset level)
+  process.stdout.write('  Starting to run ' + '['+ steps.length + '] steps');
+  process.stdout.write('\n');
+  
+  //run steps
   for(let i=0; i<steps.length; i++) {
     await run( steps[i], i+1, steps.length, results );
   }
+  
   //msg
-  console.log(`process completed.`);
-  console.log(colors.green('done'));
+  console.log(`Process completed.`);
   console.log(`-----------------\n`);
   process.exit(0);
 }
@@ -74,7 +82,7 @@ async function run( step, stepId, totalSteps, results ) {
   check(results, 'mustExists', 'object');
 
   //msg
-  process.stdout.write('  ' + titleColor(stepId) + ' - ');
+  process.stdout.write('  ' + titleColor(stepId) + '/' + titleColor(totalSteps) + ' - ');
 
   let _step = `step${stepId}`;
   let _prevStep = `step${stepId-1}`;
@@ -587,7 +595,7 @@ async function step4(input) {
           }
         } else { 
           /**
-           * case: DELETE
+           * case: DELETE no le dijas Ángela :D
            */
           action = 'delete';
           totalDeletes++;
@@ -656,15 +664,24 @@ async function step5(input) {
   //input
   let assets = input;
 
+  //async task objects
+  let imc = new ImageCleaner();
+
   //counters
+  // --cleaner--
+  let totalCleaned = 0;
+  let totalCleanErrors = 0;
+  let totalCleanActions = 0;
+  let totalCleanActionsExecuted = 0;
+  // --submissions--
   let totalDownloads = 0;
   let totalUpToDate = 0;
   let totalDeletes = 0;
   let totalNones = 0;
   let totalWarnings = 0;
   let totalErrors = 0;
-  let totalImagesChecked = 0;
-
+  let totalActions = 0;
+  // --assets--
   let assetsCount = assets.length;
   let assetsProcessed = 0;
   let assetsFiltered = 0;
@@ -685,6 +702,20 @@ async function step5(input) {
     check(asset.uid, 'mustExists', 'string');
     check(asset.name, 'mustExists', 'string');
     check(asset.map, 'mustExists', 'array');
+    check(asset.mapCounters, 'mustExists', 'object');
+
+    //title: (asset level)
+    process.stdout.write('  ' + '['+ indexIndicatorColor(i+1) + '/' + indexIndicatorColor(assets.length) + ']' + assetIdColor(asset.uid) + ` ` + colors.brightWhite.bold(asset.name));
+    process.stdout.write('\n');
+    
+    /**
+     * Asyncronous task: clean images
+     */
+    imc.map = asset.map;
+    imc.path = Utils.toPath([_configs.imagesPath, asset.uid, asset.name]);
+    imc.cleanedPath = Utils.toPath([_configs.imagesDeletedPath, asset.uid, asset.name]);
+    imc.deleteImages = _configs.deleteImages;
+    imc.run();
 
     //check
     if(asset.map.length === 0) {
@@ -710,7 +741,10 @@ async function step5(input) {
     let nones = 0;
     let warnings = [];
     let errors = [];
-    let imagesChecked = 0;
+    let actions = 0;
+
+    let action_count = 0;
+    let mapCounters = asset.mapCounters;
   
     /**
      * Execute action map
@@ -720,10 +754,15 @@ async function step5(input) {
     let _ids = [];
     for(let m=0; m<asset.map.length; m++) {
       let emap = asset.map[m];
-      let _result = {};
       //internal
       check(emap, 'mustExists', 'object');
       check(emap["_id"], 'defined', 'number');
+      
+      //title: (submission level)
+      process.stdout.write('  ' + '[s:'+ colors.cyan.dim.bold(emap["_id"]) + ` #${m+1}/${asset.map.length}` + ']');
+      process.stdout.write('\n');
+
+      let _result = {};
 
       //add _id (submission id)
       _result["_id"] = emap["_id"];
@@ -903,8 +942,12 @@ async function step5(input) {
             if(imgExists && imgIsUpToDate) {
               //prepare result: add status + updated_path + action_detail
               _result[e_key] = { ...emap[e_key], status: 'ok', op: "saveImage", updated_path: e_img_file_path, action_detail: `image up to date` };
+              
               //report
-              process.stdout.write('  ' + '['+ indexIndicatorColor(j+1) + '/' + indexIndicatorColor(_emap_entries.length) + ']' + assetIdColor(img_new_name) + ': image up to date \n');
+              let result_msg = 'image up to date';
+              let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, img_new_name, result_msg);
+              process.stdout.write(_report);
+
               //count
               upToDate++;
               continue;
@@ -921,14 +964,20 @@ async function step5(input) {
               //prepare result: add status + updated_path + action_detail
               let op = {op: "saveImage", status: 'ok', result, updated_path: e_img_file_path, action_detail: `image downloaded`};
               _result[e_key] = { ...emap[e_key], ...op};
-              
+
               //report
-              process.stdout.write('  ' + '['+ indexIndicatorColor(j+1) + '/' + indexIndicatorColor(_emap_entries.length) + ']' + assetIdColor(img_new_name) + ': image downloaded');
+              let result_msg = 'image downloaded';
+              let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, img_new_name, result_msg);
+              process.stdout.write(_report);
               
               //count
               downloads++;
 
-              //add timestamp & hash to attachment map
+              //get img info
+              let imgInfo = await Utils.getImgInfo(e_img_file_path);
+              // console.log("@img info: ", imgInfo);
+
+              //add timestamp & hash & otherImgInfo to attachment map
               e_attachment_map_o.downloadTimestamp = Utils.getCurrentTimestamp();
               e_attachment_map_o.hash = Utils.getFileHash(e_img_file_path);
               //write attachment map
@@ -941,8 +990,12 @@ async function step5(input) {
             //push error
             let _error = `an error occurs while proccessing image - error: ${error.message}`;
             errors.push(_error);
+
             //report
-            process.stdout.write('  ' + '['+ indexIndicatorColor(j+1) + '/' + indexIndicatorColor(_emap_entries.length) + ']' + assetIdColor([emap["_id"], e_key].join('_')) + ':' +colors.red(error) + ' ' + error.message + colors.red(' (skipped)\n'));
+            let result_msg = colors.red(error.message) + '\n    ' + colors.grey(error) + colors.red(' (skipped)');
+            let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, `image field: ${e_key}`, result_msg);
+            process.stdout.write(_report);
+
             continue;
           }
         }//end: case: 
@@ -979,7 +1032,7 @@ async function step5(input) {
                 imageNamesToDeleteDuplicated.push(img_name);
 
                 throw new Error(error);
-              } else imageNamesToDelete.push(img_new_name);
+              } else imageNamesToDelete.push(img_name);
 
               //images paths
               //images/{assetId}/{assetName}/
@@ -1010,6 +1063,15 @@ async function step5(input) {
                   //prepare result: add status + updated_path + action_detail
                   let op = {op: "deleteImage", status: 'ok', updated_path: e_img_file_path, action_detail: `image deleted`};
                   _result[e_key] = { ...emap[e_key], ...op};
+
+                  //report
+                  let result_msg = 'image deleted';
+                  let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, img_name, result_msg);
+                  process.stdout.write(_report);
+
+                  //count
+                  deletes++;
+                  continue;
                 } else { //case: mv
                   //imagesDeletedPath/filename
                   let e_img_file_new_path = Utils.toPath([_configs.imagesDeletedPath, img_name]);
@@ -1019,95 +1081,136 @@ async function step5(input) {
                   //prepare result: add status + updated_path + action_detail
                   let op = {op: "deleteImage", status: 'ok', updated_path: {oldPath: e_img_file_path, newPath: e_img_file_new_path}, action_detail: `image moved to 'images_deleted' dir`};
                   _result[e_key] = { ...emap[e_key], ...op};
+
+                  //report
+                  let result_msg = `image moved to 'images_deleted' dir`;
+                  let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, img_name, result_msg);
+                  process.stdout.write(_report);
+
+                  //count
+                  deletes++;
+                  continue;
                 }
               }//end: case: image exists
               else {//case: image does not exists
                 //prepare result: add status + updated_path + action_detail
                 let op = {op: "deleteImage", status: 'ok', target_path: e_img_file_path, action_detail: `image does not exists`};
                 _result[e_key] = { ...emap[e_key], ...op};
+
+                //report
+                let result_msg = 'image does not exists';
+                let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, img_name, result_msg);
+                process.stdout.write(_report);
+
+                //count
+                nones++;
+                continue;
               }
             }//end: case: has attachment map
             else {//case: has not attachment map
               //prepare result: add status + updated_path + action_detail
               let op = {op: "deleteImage", status: 'ok', target_path: null, action_detail: `image cannot be deleted in this phase: has no attachment info`};
               _result[e_key] = { ...emap[e_key], ...op};
+
+              //report
+              let result_msg = `has no filename, but if exists will be deleted`;
+              let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, `image field: ${e_key}`, result_msg);
+              process.stdout.write(_report);
+
+              //count
+              nones++;
+              continue;
             }
-            continue;
           } catch(error) {
             //prepare result: add status + error
             _result[e_key] = { ...emap[e_key], status: 'error', op: "deleteImage", error: error.message };
             //push error
             let _error = `an error occurs while proccessing image - error: ${error.message}`;
             errors.push(_error);
+
             //report
-            process.stdout.write('  ' + '['+ indexIndicatorColor(j+1) + '/' + indexIndicatorColor(_emap_entries.length) + ']' + assetIdColor([emap["_id"], e_key].join('_')) + ':' +colors.red(error) + ' ' + error.message + colors.red(' (skipped)\n'));
+            let result_msg = colors.red(error.message) + '\n    ' + colors.grey(error) + colors.red(' (skipped)');
+            let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, `image field: ${e_key}`, result_msg);
+            process.stdout.write(_report);
+
             continue;
           }
         }
 
-      }//end: for each emap entry
+      }//end: for each emap entry (for each submission)
       
       //add result
       images_update_run.push(_result);
+      //count
+      assetsProcessed++;
     }//end: for each map entry
 
+    //prepare counters
+    actions = downloads + upToDate + deletes + nones;
+    let mapRunnerCounters = {downloads, upToDate, deletes, nones, totalActions: actions+'/'+mapCounters.totalActions, warnings: warnings.length, errors: errors.length}; 
+    if(!warnings.length) delete mapRunnerCounters.warnings;
+    if(!errors.length) delete mapRunnerCounters.errors;
+
+    //report: (image cleaner)
+    await imc.showProgress();
+    imc.showReport();
+    //report: (asset level)
+    process.stdout.write('  ' + '['+ colors.cyan('ok') + ']' + assetIdColor(asset.uid) + colors.brightWhite.bold(` ${asset.name}`) + ':');
+    Utils.printReportCounters([{counters: mapRunnerCounters}]);
+    if(warnings.length > 0) Utils.printWarnings(warnings);
+    process.stdout.write(colors.cyan(`  -----------------\n\n`));
+
     /**
-     * Phase: Remove _id's
-     * 
-     * 1. Get all dir names corresponding to _id's
-     * 2. Remove dirs whose name is not in the run map
+     * Set total counters
      */
-    //get asset path
-    // let asset_path = Utils.toPath([target_dir, asset.uid, assetName]);
-    // //get asset path entries
-    // let asset_path_entries = Utils.getDirEntries(asset_path, {dirsOnly: true, numericOnly: true});
+    // --cleaner--
+    let cleaned = imc.cleaned;
+    let cleanErrors = imc.errors;
+    totalCleaned += cleaned.length;
+    totalCleanErrors += cleanErrors.length;
+    totalCleanActions += imc.totalActions;
+    totalCleanActionsExecuted += imc.totalActionsExecuted;
+    let imageCleanerReport = {cleaned, cleanErrors, totalCleaned, totalCleanErrors, totalCleanActions, totalCleanActionsExecuted}
+    // --submissions--
+    totalDownloads += downloads;
+    totalUpToDate += upToDate;
+    totalDeletes += deletes;
+    totalNones += nones;
+    totalWarnings += warnings.length;
+    totalErrors += errors.length;
+    totalActions += actions;
     
-    // //for each asset path entry:
-     let records_delete_run = [];
-    // for(let i=0; i<asset_path_entries.length; i++) {
-    //     let _result = {};
-    //     let e = asset_path_entries[i];
-    //     let e_int = parseInt(e, 10);
-
-    //     //add _id
-    //     _result["_id"] = e_int;
-
-    //     /**
-    //      * Case: keep
-    //      */
-    //     if(_ids.includes(e_int)) {
-    //       _result = {..._result, action: 'keep', status: 'ok'};
-    //     } else {
-    //       /**
-    //        * Case: delete
-    //        */
-    //       try{
-    //         let asset_path_e = Utils.toPath([asset_path, e]);
-    //         let result = Utils.deletePath(asset_path_e);
-    //         _result = {..._result, action: 'delete', status: 'ok', deletedPath: asset_path_e, action_detail: result ? 'path deleted' : 'path does not exists'};
-    //       } catch(error) {
-    //         //add status + error
-    //         _result = {..._result, action: 'delete', status: 'error', targetPath: asset_path_e, error: error.message};
-    //       }
-    //     }
-
-    //     records_delete_run.push(_result);
-    // }//end: for each asset path entry
-
     //add asset + images_update_run
-    results = [...results, {...asset, images_update_run, records_delete_run}];
-  }
-  //msg
-  //console.log(`@ results:`, JSON.stringify(results, null, 2));
-  console.log(`@ step5: ${results.length} results... done`);
-  console.log(`  -----------------\n`);
+    results = [...results, {...asset, mapRunnerReport: {mapsRunned: images_update_run, mapRunnerCounters }, imageCleanerReport}];
 
-  //log result
-  let result_log_path = join(_configs.stepsPath, 'step5_result.json');
-  Utils.writeFile(result_log_path, JSON.stringify(results, null, 2));
+    //log result
+    let result_log_path = join(_configs.stepsPath, `${asset.uid}_step5_result__update_images.json`)
+    Utils.writeFile(result_log_path, JSON.stringify(results, null, 2));
+  }//end: for each asset
+
+  //prepare report
+  totalResults = results.length;
+  let countersA = {totalCleaned, totalCleanErrors, totalCleanActions, totalCleanActionsExecuted};
+  let countersB = {totalDownloads, totalUpToDate, totalDeletes, totalNones, totalWarnings, totalErrors, totalActions};
+  let countersC = {assetsCount, assetsProcessed, assetsFiltered, totalResults};
+  //remove empty errors and warnings
+  if(!totalCleanErrors) delete countersA.totalCleanErrors;
+  if(!totalWarnings) delete countersB.totalWarnings;
+  if(!totalErrors) delete countersB.totalErrors;
+
+  //set status
+  status  = (!totalCleanErrors && !totalErrors);
+  //report
+  console.log(status ? colors.brightCyan('  ok') : colors.red('  fail'), '\n');
+  Utils.printReportCounters([{counters: countersA}]);
+  Utils.printReportCounters([{counters: countersB}]);
+  Utils.printReportCounters([{counters: countersC}]);
+  console.log(separatorColor(`  -----------------\n`));
 
   return results;
 }
+
+
 
 /**
  * uncaughtException handler needed to prevent node from crashing upon receiving a malformed jq filter.

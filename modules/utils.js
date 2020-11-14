@@ -7,6 +7,7 @@ import fs from 'fs-extra';
 import csvParseSync from 'csv-parse/lib/sync.js';
 import colors from 'colors/safe.js';
 import sjcl from 'sjcl';
+import Canvas from 'canvas';
 
 //global configs
 const _token = globals.TOKEN || "";
@@ -215,8 +216,32 @@ export function getTargetDir() {
   }
 }
 
+export function renameIfExists(filePath) {
+  //internal
+  check(filePath, 'mustExists', 'string');
+
+  let ext_i = filePath.lastIndexOf('.');
+  let ext = (ext_i > 0) ? filePath.slice(ext_i) : '';
+  let noExt = (ext_i > 0) ? filePath.slice(0, ext_i) : filePath;
+
+  let _path = resolve(filePath);
+  let max_tries = 1000;
+  let tries = 1;
+
+  while(fileExists(_path)&&(tries<=max_tries)) {
+    _path = resolve(noExt + '_' + String(tries) + ext);
+    tries++;
+  } 
+  //check
+  if(fileExists(_path)) throw new Error('could not rename file: ' + filePath);
+
+  return _path;
+}
+
 export function fileExists(filePath) {
-  // check if the file exists
+  //internal
+  check(filePath, 'mustExists', 'string');
+
   try {
     let _path = resolve(filePath);
     fs.accessSync(_path, fs.constants.F_OK);
@@ -227,6 +252,9 @@ export function fileExists(filePath) {
 }
 
 export function dirExists(dirPath) {
+  //internal
+  check(dirPath, 'mustExists', 'string');
+
   try {
     let _path = resolve(dirPath);
     fs.accessSync(_path, fs.constants.F_OK);    
@@ -357,13 +385,25 @@ export function toPath(entries) {
   return join(..._entries);
 }
 
-export function getDirEntries(t_path, options) {
+export function getDirEntries(dirPath, options) {
   //internal check
-  if(!t_path || typeof t_path !== 'string') throw new Error(`expected string in @t_path`);
+  if(!dirPath || typeof dirPath !== 'string') throw new Error(`expected string in @dirPath`);
   if(options && typeof options !== 'object') throw new Error(`expected object in @options`);
 
   let dirsOnly = options.dirsOnly ? options.dirsOnly : false;
+  let filesOnly = options.filesOnly ? options.filesOnly : false;
   let numericOnly = options.numericOnly ? options.numericOnly : false;
+
+  //check
+  if(dirsOnly && filesOnly) throw new Error(`'dirsOnly' and 'filesOnly' are mutual exclusive options`);
+
+  // resolve path
+  let t_path = null;
+  try {
+    t_path = resolve(dirPath);
+  } catch (e) {
+    throw new Error(`trying to resolve path fails: ${dirPath} - error: ${e.message}`);
+  }
 
   try {
     let dirs = fs.readdirSync(t_path, { withFileTypes: true });
@@ -373,13 +413,14 @@ export function getDirEntries(t_path, options) {
      *  2. entry name: dir names with positive integer values (without leading 0s) or 0.
      */
     if(dirsOnly)    dirs = dirs.filter(dirent => dirent.isDirectory());
+    if(filesOnly)   dirs = dirs.filter(dirent => dirent.isFile());
     if(numericOnly) dirs = dirs.filter(dirent => /^([1-9][0-9]*)|([0])$/.test(dirent.name));
     
     dirs = dirs.map(dirent => dirent.name);
     return dirs;
 
   } catch (e) {
-    throw new Error("trying to get numeric dir entries fails: " + e);
+    throw new Error("trying to get dir entries fails: " + e.message);
   }
 }
 /**
@@ -684,13 +725,16 @@ export function printReportCounters(report) {
     //internal
     check(counters, 'mustExists', 'object');
     let warnKeys = ['totalWarnings', 'warnings', 'totalNones'];
+    let errKeys = ['totalErrors', 'totalCleanErrors', 'errors'];
 
     //print counters
     let e = Object.entries(counters);
     for(let j=0; j<e.length; j++) {
       if(j === 0) process.stdout.write('  ');
       process.stdout.write(colors.white(e[j][0]) + ': ');
-      if(warnKeys.includes(e[j][0])) 
+      if(errKeys.includes(e[j][0]))
+           process.stdout.write(colors.red.bold(e[j][1]));
+      else if(warnKeys.includes(e[j][0])) 
            process.stdout.write(colors.yellow.bold(e[j][1]));
       else process.stdout.write(colors.brightWhite.bold(e[j][1]));
       if(j+1 < e.length) process.stdout.write(', ');
@@ -710,6 +754,41 @@ export function printWarnings(warnings) {
     if(i+1 < warnings.length) process.stdout.write(',\n');
   }
   process.stdout.write('\n');
+}
+
+export function getActionReportLine(submissionId, c_s, t_s, action, c_a, t_a, c_f, t_f, image_name, result_msg) {
+  //internal
+  check(submissionId, 'defined', 'number');
+  check(c_s, 'defined', 'number');
+  check(t_s, 'defined', 'number');
+  check(action, 'mustExists', 'string');
+  check(c_a, 'defined', 'number');
+  check(t_a, 'defined', 'number');
+  check(c_f, 'defined', 'number');
+  check(t_f, 'defined', 'number');
+  check(image_name, 'mustExists', 'string');
+  check(result_msg, 'mustExists', 'string');
+
+  //report
+  let _action = action === 'keep' ? colors.green(action[0]) : (action === 'delete' ? colors.red(action[0]) : colors.yellow(action[0]));
+  let progress = Math.round((c_a/t_a*100*100)+ Number.EPSILON)/100;
+
+  return ('  ' 
+  + '['
+  //submission counters
+  //+ colors.gray(`s:${submissionId} #${c_s}/${t_s} `)
+  //action counters
+  + colors.gray(`a:${_action} #`) + colors.white(c_a)+ colors.gray(`/${t_a} `)
+  //field counters
+  + colors.gray(`f:#`) + colors.cyan(c_f) + colors.gray(`/${t_f}`)
+  +  '] ' 
+  //image name
+  + colors.cyan.dim.bold(image_name) + ': '
+  //result 
+  + colors.gray(result_msg) 
+  //progress
+  + `  ${progress}%` 
+  + '\n');
 }
 
 export function getHash(data) {
@@ -801,4 +880,81 @@ export function isValidFileHash(file, hash) {
   } catch (e) {
     throw new Error(`isValidFileHash operation failed: ` + e.message);
   }
+}
+
+export function buildImageName(prefix, name) {
+  //internal
+  check(prefix, 'mustExists', 'string');
+  check(name, 'mustExists', 'string');
+
+  return prefix + '_' + name;
+}
+
+export async function getImgInfo(file) {
+  //internal
+  check(file, 'mustExists', 'string');
+
+  let data = null;
+  let o = null;
+  let _file = null;
+  let imgInfo = {};
+
+  //resolve
+  try {
+    _file = resolve(file);
+  } catch (e) {
+    throw new Error(`getImgInfo operation failed: trying to resolve path fails: ${file}`);
+  }
+
+  //check
+  if(!fileExists(_file)) throw new Error(`getImgInfo operation failed: file does not exists: ${_file}`);
+
+  //read
+  try {
+    data = fs.readFileSync(_file, 'utf8');
+  } catch (e) {
+    throw new Error(`getImgInfo operation failed: read failed: ${_file} - ` + e.message);
+  }
+
+  //hash
+  // try {
+  //   imgInfo.hash = sjcl.hash.sha256.hash(data);
+  // } catch (e) {
+  //   throw new Error(`getImgInfo operation failed: hash failed - ` + e.message);
+  // }
+
+  //canvas
+  try {
+    
+    let result = await new Promise((resolve, reject) => {
+
+    var img = new Canvas.Image(); // Create a new Image
+    img.onload = () => { 
+      const canvas = Canvas.createCanvas(img.width, img.height);
+      const ctx = canvas.getContext('2d')
+
+      // console.log("@img: ", img.width, ' x ', img.height);
+      // console.log("@img: ", img.naturalWidth, ' x ', img.naturalHeight);
+      // console.log("@img: ", img);
+
+      imgInfo.width = img.width;
+      imgInfo.height = img.height;
+
+      //console.log("@ data.l-2: ", data.length);
+      imgInfo.size = data.length;
+      resolve();
+
+    }
+    img.onerror = err => { throw err }
+    img.src = file;
+
+  });
+
+
+
+  } catch (e) {
+    throw new Error(`getImgInfo operation failed: img canvas - on file: ${_file} - ` + e.message);
+  }
+
+  return imgInfo;
 }
