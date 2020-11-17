@@ -6,7 +6,6 @@ import colors from 'colors/safe.js';
 import ProgressBar from 'progress';
 
 const nextColor = colors.grey;
-const retryMsgColor = colors.grey;
 
 /**
  * getAssets  get assets info from @endpoint /assets/.
@@ -375,7 +374,6 @@ export async function getAssetInfo(uid, options) {
 
   return {results, report, status};
 }
-
 
 /**
  * getSubmissions  get the submissions of the

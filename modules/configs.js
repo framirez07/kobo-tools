@@ -466,7 +466,8 @@ function getSubmissionIdsFromCsv(filter, mainDir) {
 }
 
 /**
- * 
+ * addSubmissionIds  returns a set of ids resulting from the union of
+ * the given array sets.
  * @param {array} submissionIds input array with ids to add to output array. 
  * @param {array} _submissionIds ouput array where ids from input array will
  * be added into.

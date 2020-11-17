@@ -1,60 +1,10 @@
-import globals from '../configs/globals.js';
 import { check, confirm, isOfType } from './checks.js';
-import nodejq  from 'node-jq';
-import axios from 'axios';
 import { resolve, join } from 'path';
 import fs from 'fs-extra';
-import csvParseSync from 'csv-parse/lib/sync.js';
+import nodejq  from 'node-jq';
 import colors from 'colors/safe.js';
 import sjcl from 'sjcl';
 import Canvas from 'canvas';
-
-//global configs
-const _token = globals.TOKEN || "";
-const _max_retries = globals.REQUEST_RETRIES || 20;
-const _req_timeout = globals.REQUEST_TIMEOUT || 15000;
-const _con_timeout = _req_timeout+3000;
-const _target_dir = globals.TARGET_DIR || "";
-
-/**
- * get  axios get request with options and
- * cancelation.
- * 
- * @param {string}  next endpoint url.
- */
-export async function get(next) {
-  //request cancelation
-  let CancelToken = axios.CancelToken;
-  let source = CancelToken.source();
-  let timeout = setTimeout(() => {
-    source.cancel(`connection timeout of ${_con_timeout}ms exceeded`);
-  }, _con_timeout);
-  //request options
-  let options = {
-    headers: {'Authorization': `Token ${_token}`}, 
-    timeout: _req_timeout,
-    cancelToken: source.token
-  };
-  //request
-  let result = await axios.get(next, options)
-  .then(
-    //resolved
-    (response) => {
-      //check
-      if(!response||!response.data){done = true; throw new Error('no response data')};
-      
-      //ok
-      process.stdout.write("... done\n");
-      return response.data;
-    },
-    //rejected
-    (error) => { throw error })
-  .catch((error) => { throw error });
-  //clear
-  clearTimeout(timeout);
-
-  return result;
-}
 
 /**
  * toJqSelectBody  builds and returns a Jq select argument
@@ -65,14 +15,13 @@ export async function get(next) {
  * @param {string}  compOp comparison operator.
  * @param {string}  logiOp logical operator.
  */
-export async function toJqSelectBody(key, values, compOp, logiOp) {
-  //check
-  if(!key || typeof key !== 'string')       throw new Error('expected string in @key');
-  if(!values || !Array.isArray(values))     throw new Error('expected array in @values');
-  if(!compOp || typeof compOp !== 'string') throw new Error('expected string in @compOp');
-  if(!logiOp || typeof logiOp !== 'string') throw new Error('expected string in @logiOp');
-  //warns
-  if(!values.length) { console.warn("@values array has no elements"); return ''; }
+export function toJqSelectBody(key, values, compOp, logiOp) {
+  //internal
+  check(key, 'mustExists', 'string');
+  check(values, 'mustExists', 'array');
+  check(compOp, 'mustExists', 'string');
+  check(logiOp, 'mustExists', 'string');
+  if(!values.length) throw new Error(`expected non empty array on @arg`);
 
   let stms = [];
   for(let i=0; i<values.length; i++) {
@@ -90,11 +39,12 @@ export async function toJqSelectBody(key, values, compOp, logiOp) {
  * @param {array}   items array of items.
  */
 export async function applyFilters(filters, items) {
-  //check
-  if(!filters || typeof filters!=='object') throw new Error('expected object in @filters');
-  if(!items || !Array.isArray(items))       throw new Error('expected array in @items');
-  //warns
-  if(!items.length) { console.warn("@items array has no elements"); return []; }
+  //internal
+  check(filters, 'mustExists', 'object');
+  check(items, 'mustExists', 'array');
+  
+  //case: no items
+  if(!items.length) return [];
   
   let _filtered_items = [...items];
   /**
@@ -124,16 +74,18 @@ export async function applyFilters(filters, items) {
 /**
  * findAttachment() seek image name in attachments and returns
  * the attachment object that match or null if no match was found.
+ * If the given image name has more than one attachment entry,
+ * then the one with the greater id will be returned.
  * 
  * @param {string} name image name.
  * @param {array} attachments attachment array.
  * @param {int} id instance or submission id.
  */
 export function findAttachment(name, attachments, id) {
-  //check
-  if(name && typeof name !== 'string') throw new Error('expected string in @name');
-  if(attachments && !Array.isArray(attachments)) throw new Error('expected array in @attachments');
-  if(typeof id !== 'number') throw new Error('expected number in @id');
+  //internal
+  check(name, 'mustExists', 'string');
+  check(attachments, 'mustExists', 'array');
+  check(id, 'defined', 'number');
   
   //empty cases
   if(!name) return null;
@@ -143,15 +95,14 @@ export function findAttachment(name, attachments, id) {
   let result = null;
   for(let i=0; i<attachments.length; i++) {
     let attachment = attachments[i];
+    //internal
+    check(attachment, 'mustExists', 'object');
+    check(attachment.mimetype, 'mustExists', 'string');
+    check(attachment.download_url, 'mustExists', 'string');
+    check(attachment.filename, 'mustExists', 'string');
+    check(attachment.instance, 'defined', 'number');
+    check(attachment.id, 'defined', 'number');
     
-    //checks
-    if(!attachment || typeof attachment !== 'object') { console.log(`@@ error: expected object in @attachments element... excluded`); continue; }
-    if(!attachment.mimetype || typeof attachment.mimetype !== 'string') { console.log(`@@ error: expected string in @attachment.mimetype... excluded`); continue; }
-    if(!attachment.download_url || typeof attachment.download_url !== 'string') { console.log(`@@ error: expected string in @attachment.download_url... excluded`); continue; }
-    if(!attachment.filename || typeof attachment.filename !== 'string') { console.log(`@@ error: expected string in @attachment.filename... excluded`); continue; }
-    if(!attachment.instance || typeof attachment.instance !== 'number') { console.log(`@@ error: expected number in @attachment.instance... excluded`); continue; }
-    if(!attachment.id || typeof attachment.id !== 'number') { console.log(`@@ error: expected number in @attachment.id... excluded`); continue; }
-
     //check: mimetype
     if(!/^image/.test(attachment.mimetype)) continue;
 
@@ -172,50 +123,11 @@ export function findAttachment(name, attachments, id) {
 }
 
 /**
- * getTargetDir() check if TARGET_DIR is defined, and exists.
- * If defined but not exists, throws and error. If no defined
- * creates a new directory with default name: 'out_timestamp'.  
  * 
- * @return {string} target dir name.
+ * @param {string} filePath filename that will be checked for existence.
+ * If @filePath exists, this function will return @filePath with a 
+ * number added as a postfix (but before extension).
  */
-export function getTargetDir() {
-  //case: TARGET_DIR defined
-  if(_target_dir) {
-    //check
-    if(typeof _target_dir !== 'string') throw new Error('expected string in @TARGET_DIR');
-
-    let t_dir = resolve(_target_dir);
-    if(fileExists(t_dir)) return t_dir; //exists
-    else {
-      //msg
-      console.log(`@@ TARGER_DIR does not exists: ${t_dir}`);
-      //make dir
-      makeDirPath(t_dir);
-      console.log(`@@ TARGER_DIR created: ${t_dir}`);
-      //msg
-    }
-
-  } else { //case: default target
-    
-    let d = './out_'+getCurrentTimestamp();
-    let t_dir = resolve(d);
-    let max_tries = 100;
-    let tries = 1;
-
-    while(fileExists(t_dir)&&(tries<=max_tries)) {
-      d = './out_'+getCurrentTimestamp()+'-'+String(tries);
-      t_dir = resolve(d);
-      tries++;
-    }
-    //check
-    if(fileExists(t_dir)) throw new Error('very bad error in here');
-
-    //make dir
-    t_dir = makeDirPath(t_dir);
-    return t_dir;
-  }
-}
-
 export function renameIfExists(filePath) {
   //internal
   check(filePath, 'mustExists', 'string');
@@ -238,6 +150,10 @@ export function renameIfExists(filePath) {
   return _path;
 }
 
+/**
+ * fileExists  checks if given file exists.
+ * @param {string} filePath filename to be checked.
+ */
 export function fileExists(filePath) {
   //internal
   check(filePath, 'mustExists', 'string');
@@ -251,6 +167,10 @@ export function fileExists(filePath) {
   }
 }
 
+/**
+ * dirExists  checks if given directory exists.
+ * @param {string} dirPath 
+ */
 export function dirExists(dirPath) {
   //internal
   check(dirPath, 'mustExists', 'string');
@@ -264,6 +184,10 @@ export function dirExists(dirPath) {
   }
 }
 
+/**
+ * pathExists  checks if the given path exists.
+ * @param {string} path path to be checked.
+ */
 export function pathExists(path) {
   // check if the file exists
   try {
@@ -275,6 +199,10 @@ export function pathExists(path) {
   }
 }
 
+/**
+ * makeDirPath  makes path.
+ * @param {string} dirPath path to be made.
+ */
 export function makeDirPath(dirPath) {
   let _path = null;
   try {
@@ -297,6 +225,12 @@ export function makeDirPath(dirPath) {
   }
 }
 
+/**
+ * writeFile  writes data into file.
+ * @param {string} filePath file to write into.
+ * @param {string} data data to write.
+ * @param {object} options configurations.
+ */
 export function writeFile(filePath, data, options) {
   //internal
   check(filePath, 'mustExists', 'string');
@@ -305,7 +239,6 @@ export function writeFile(filePath, data, options) {
 
   //options
   let _async = (options&&options.async) ? options.async : false;
-  
 
   //resolve path
   let _path = null;
@@ -329,6 +262,13 @@ export function writeFile(filePath, data, options) {
     throw new Error(`trying to write file fails: ${_path} - error: ${e.message}`);
   }
 }
+
+/**
+ * appendFile  appends data to file.
+ * @param {string} filePath file to append into.
+ * @param {string} data data to be appended.
+ * @param {object} options configurations.
+ */
 export function appendFile(filePath, data, options) {
   //internal
   check(filePath, 'mustExists', 'string');
@@ -363,6 +303,10 @@ export function appendFile(filePath, data, options) {
   }
 }
 
+/**
+ * deletePath  deletes a path (file or directory).
+ * @param {string} d_path path to be deleted.
+ */
 export function deletePath(d_path) {
   //internal
   check(d_path, 'mustExists', 'string');
@@ -391,6 +335,11 @@ export function deletePath(d_path) {
   }
 }
 
+/**
+ * mvFile  renames a file.
+ * @param {string} oldPath name of the current file to ve renamed.
+ * @param {string} newPath new file's name.
+ */
 export function mvFile(oldPath, newPath) {
   //internal
   check(oldPath, 'mustExists', 'string');
@@ -420,16 +369,29 @@ export function mvFile(oldPath, newPath) {
   }
 }
 
+/**
+ * toPath  returns a path string from given entries.
+ * @param {array} entries array to be converted to path.
+ */
 export function toPath(entries) {
+  //internal
+  check(entries, 'mustExists', 'array');
+  
   let _entries = entries.map(e => String(e));
   return join(..._entries);
 }
 
+/**
+ * getDirEntries  returns an array with the names of the
+ * entries  in target directory, filtered by given options.
+ * @param {string} dirPath path of the target directory.
+ * @param {object} options configurations.
+ */
 export function getDirEntries(dirPath, options) {
-  //internal check
-  if(!dirPath || typeof dirPath !== 'string') throw new Error(`expected string in @dirPath`);
-  if(options && typeof options !== 'object') throw new Error(`expected object in @options`);
-
+  //internal
+  check(dirPath, 'mustExists', 'string');
+  check(options, 'mustExists', 'object');
+  
   let dirsOnly = options.dirsOnly ? options.dirsOnly : false;
   let filesOnly = options.filesOnly ? options.filesOnly : false;
   let numericOnly = options.numericOnly ? options.numericOnly : false;
@@ -464,7 +426,8 @@ export function getDirEntries(dirPath, options) {
   }
 }
 /**
- * getCurrentTimestamp returns formated current timestamp.
+ * getCurrentTimestamp  returns formated current timestamp.
+ * @param {object} options configurations
  */
 export function getCurrentTimestamp(options) {
   //internal
@@ -500,11 +463,10 @@ export function getCurrentTimestamp(options) {
 
 /**
  * escapeRegExp escape special regexp chars in string or strings.
- * 
  * @param {string|array} input string or array of strings to be escaped. 
  */
 export function escapeRegExp(input) {
-  //internal check
+  //internal
   if(!input || (typeof input !== 'string' && (!Array.isArray(input) || input.length === 0))) throw new Error('expected non-empty string or array in @input');
 
   //case: string
@@ -521,232 +483,15 @@ export function escapeRegExp(input) {
   }
 }
 
-export function getConfigs(file) {
-  //internal check
-  if(file && typeof file !== 'string') throw new Error('expected string in @file');
-  //check
-  if(!file) return {};
-
-  let configs = parseJSONFile(file);
-  checkConfigs(configs);
-
-  //get total submission ids
-  for(let i=0; i<configs.filters.length; i++) {
-    let filter = configs.filters[i];
-    filter._submissionIds = getSubmissionIds(filter.submissionIdsCsv, filter.submissionIds);
-  }
-
-  return configs;
-}
-
-/**
- * getSubmissionIds - get total submission ids.
- * @param {string} submissionIdsCsv
- * @param {array}  submissionIds
- */
-function getSubmissionIds(submissionIdsCsv, submissionIds) {
-  //internal check
-  if(submissionIdsCsv && typeof submissionIdsCsv !== 'string') throw new Error('expected string in @submissionIdsCsv');
-  if(submissionIds && !Array.isArray(submissionIds)) throw new Error('expected array in @submissionIds');
-
-  let _submissionIds = [];
-
-  //add ids from @submissionIds
-  if(submissionIds) addSubmissionIds(submissionIds, _submissionIds);
-
-  //add ids from @submissionIdsCsv
-  if(submissionIdsCsv) {
-    let sids = getSubmissionIdsFromCsv(submissionIdsCsv);
-    addSubmissionIds(sids, _submissionIds);
-  }
-
-  return _submissionIds;
-}
-
-function getSubmissionIdsFromCsv(submissionIdsCsv, idColumn, delimiter) {
-  //internal check
-  if(submissionIdsCsv && typeof submissionIdsCsv !== 'string') throw new Error('expected string in @submissionIdsCsv');
-  if(delimiter && typeof delimiter !== 'string') throw new Error('expected string in @delimiter');
-  if(idColumn && typeof idColumn !== 'string') throw new Error('expected string in @idColumn');
-  
-  let data = null;
-  let records = null;
-  let _idColumn = (idColumn) ? idColumn : 'id';
-  let _delimiter = (delimiter) ? delimiter : ',';
-  let _file = resolve(submissionIdsCsv);
-  let ids = [];
-  let errors = [];
-
-  //check
-  if(!fileExists(_file)) throw new Error(`file does not exists: ${_file}`);
-
-  //read
-  try {
-    data = fs.readFileSync(_file, 'utf8');
-  } catch (e) {
-    throw new Error(`file read operation failed: ${_file}\n` + e.message);
-  }
-
-  //parse
-  try {
-    records = csvParseSync(data, {
-      columns: false,
-      skip_empty_lines: true,
-      delimiter: _delimiter
-    })
-    //check
-    if(!records) throw new Error('csv parsed result is null');
-    if(!Array.isArray(records)) throw new Error('csv parsed result is not an array');
-    if(records.length === 0) throw new Error('csv parsed result is empty');
-  } catch (e) {
-    throw new Error(`CSV parse operation failed: ` + e.message);
-  }
-  //check
-  if(records.length === 1) throw new Error('csv parsed results has not data');
-
-  //get headers
-  let headers = records[0];
-  //check
-  if(!headers || !Array.isArray(headers)) throw new Error('expected array in csv @headers');
-
-  //check _id column
-  let idColumnCount = 0;
-  let idColumnIndex = -1;
-  for(let i=0; i<headers.length; i++) {
-    let h = headers[i];
-    if(h === _idColumn) { idColumnCount++; idColumnIndex = i };
-  }
-  //check
-  if(idColumnCount === 0) throw new Error(`column '${_idColumn}' not found in csv @headers`);
-  if(idColumnCount > 1) throw new Error(`column '${_idColumn}' found more than once in csv @headers`);
-
-  //get ids
-  for(let i=1; i<records.length; i++) {
-    let r = records[i];
-    //check
-    if(!r || !Array.isArray(r)) throw new Error(`expected array in csv @records`);
-    if(!r[idColumnIndex]) errors.push(`id is empty - in csv @records entry ${i}`);
-    else {
-      let _id = Number.parseFloat(r[idColumnIndex]);
-      if(Number.isNaN(_id)) errors.push(`id '${r[idColumnIndex]}' is not a number - in csv @records entry ${i}`);
-      else if(!Number.isInteger(_id)) errors.push(`id '${r[idColumnIndex]}' is not int - in csv @records entry ${i}`);
-    }
-
-    ids.push(r[idColumnIndex]);
-  }
-
-  if(errors.length > 0) throw new Error(`csv file has errors: \n${JSON.stringify(errors, null, 2)}\n`);
-  else return ids;
-}
-
-function addSubmissionIds(submissionIds, _submissionIds) {
-  //internal check
-  if(!submissionIds || !Array.isArray(submissionIds)) throw new Error('expected array in @submissionIds');
-  if(!_submissionIds || !Array.isArray(_submissionIds)) throw new Error('expected array in @_submissionIds');
-
-  let errors = [];
-
-  //for each entry in @submissionIds
-  for(let i=0; i<submissionIds.length; i++) {
-    let id = submissionIds[i];
-    //check
-    if(!Number.isInteger(id) && typeof id !== 'string') errors.push(`int or string parsable to int expected - in @submissionIds entry ${i}`);
-    else {
-      //case: int
-      if(Number.isInteger(id) && !_submissionIds.includes(id)) _submissionIds.push(id);
-      else {
-        //case: string
-        let _id = Number.parseFloat(id);
-        if(Number.isNaN(_id)) errors.push(`id '${id}' is not a number - in @submissionIds entry ${i}`);
-        else if(!Number.isInteger(_id)) errors.push(`id '${id}' is not int - in @submissionIds entry ${i}`);
-        else if(!_submissionIds.includes(_id)) _submissionIds.push(_id);
-      }
-    }
-  }//end: for each entry in @submissionIds
-
-  if(errors.length > 0) throw new Error(`submissionIds has errors: \n${JSON.stringify(errors, null, 2)}\n`);
-  else return true;
-}
-
-/**
- * checkConfigs - Check configs object.
- * @param {object} configs 
- */
-function checkConfigs(configs) {
-  //internal check
-  if(configs && typeof configs !== 'object') throw new Error('expected object in @configs');
-  //check
-  if(!configs) return {};
-
-  let errors = [];
-  let valid_keys = ['filters'];
-  let valid_filters_keys = ['assetId', 'submissionIdsCsv', 'submissionIds'];
-
-  //check: keys
-  let o_keys = Object.keys(configs);
-  for(let i=0; i<o_keys.length; i++) {
-    if(!valid_keys.includes(o_keys[i])) errors.push(`not valid key in configs: '${o_keys[i]}'`);
-  }
-
-  //check: filters
-  if(!configs.filters) configs.filters = [];
-  else {
-    //check
-    if(!Array.isArray(configs.filters)){
-      errors.push(`expected array in @filters`);
-    } else {
-      //for each filter entry
-      for(let i=0; i<configs.filters.length; i++) {
-        let filter = configs.filters[i];
-
-        //check
-        if(!filter || typeof filter !== 'object') {
-          errors.push(`expected object - in @filters entry ${i}`);
-        } else {
-
-          //check: keys
-          let o_keys = Object.keys(filter);
-          for(let j=0; j<o_keys.length; j++) {
-            if(!valid_filters_keys.includes(o_keys[j])) errors.push(`not valid key in configs.filters: '${o_keys[j]}'`);
-          }
-
-          //check: assetId
-          if(filter.assetId === undefined) errors.push(`mandatory key 'assetId' is not defined - in @filters entry ${i}`);
-          else if(filter.assetId === null) errors.push(`string expected in key 'assetId' but is null - in @filters entry ${i}`);
-          else if(filter.assetId === '') errors.push(`non-empty string expected in key 'assetId' but is empty - in @filters entry ${i}`);
-          else if(typeof filter.assetId !== 'string') errors.push(`string expected in key 'assetId' but is not a string - in @filters entry ${i}`);
-
-          //check: submissionIdsCsv
-          if(filter.submissionIdsCsv !== undefined) {
-            if(filter.submissionIdsCsv === null) errors.push(`string expected in key 'submissionIdsCsv' but is null - in @filters entry ${i}`);
-            else if(filter.submissionIdsCsv === '') errors.push(`string expected in key 'submissionIdsCsv' but is empty - in @filters entry ${i}`);
-            else if(typeof filter.submissionIdsCsv !== 'string') errors.push(`string expected in key 'submissionIdsCsv' but is not a string - in @filters entry ${i}`);
-          }
-
-          //check: submissionIds
-          if(filter.submissionIds !== undefined) {
-            if(filter.submissionIds === null) errors.push(`array expected in key 'submissionIds' but is null - in @filters entry ${i}`);
-            else if(!Array.isArray(filter.submissionIds)) errors.push(`array expected in key 'submissionIds' - in @filters entry ${i}`);
-          }
-        }//end: for each filter entry
-      }
-    }
-  }//end: check: filters
-
-  if(errors.length > 0) throw new Error(`configs file has errors: \n${JSON.stringify(errors, null, 2)}\n`);
-  else return true;
-}
-
 /**
  * parseJSONFile - Parse a json file.
- *
- * @param  {string} file path where json file is stored
- * @return {object} json file converted to js object
+ * @param  {string} file path where json file is stored.
+ * @return {object} js object from file.
  */
 export function parseJSONFile(file) {
-  //internal check
-  if(!file || typeof file !== 'string') throw new Error('expected string in @file');
-  
+  //internal
+  check(file, 'mustExists', 'string');
+    
   let data = null;
   let o = null;
   let _file = resolve(file);
@@ -771,6 +516,12 @@ export function parseJSONFile(file) {
   return o;
 }
 
+/**
+ * printReportCounters  prints counters and writes to log file.
+ * @param {array} report array with counters entries to report.
+ * @param {string} logfile log file to write into.
+ * @param {options} options configurations.
+ */
 export function printReportCounters(report, logfile, options) {
   //internal
   check(report, 'mustExists', 'array');
@@ -804,6 +555,11 @@ export function printReportCounters(report, logfile, options) {
   }
 }
 
+/**
+ * printWarnings  prints warnings and writes to log file.
+ * @param {array} warnings array of warnings.
+ * @param {string} logfile log file to write into.
+ */
 export function printWarnings(warnings, logfile) {
   //internal
   check(warnings, 'mustExists', 'array');
@@ -819,6 +575,19 @@ export function printWarnings(warnings, logfile) {
   }
 }
 
+/**
+ * getActionReportLine  returns a report-formated line string.
+ * @param {number} submissionId submission id.
+ * @param {number} c_s current submission.
+ * @param {number} t_s total submissions.
+ * @param {string} action action name.
+ * @param {number} c_a current action.
+ * @param {number} t_a total actions.
+ * @param {number} c_f current field.
+ * @param {number} t_f total fields.
+ * @param {string} image_name image's name.
+ * @param {string} result_msg result message.
+ */
 export function getActionReportLine(submissionId, c_s, t_s, action, c_a, t_a, c_f, t_f, image_name, result_msg) {
   //internal
   check(submissionId, 'defined', 'number');
@@ -852,6 +621,10 @@ export function getActionReportLine(submissionId, c_s, t_s, action, c_a, t_a, c_
   );
 }
 
+/**
+ * getHash  calculates a hash from the fiven data.
+ * @param {string} data data to be hashed.
+ */
 export function getHash(data) {
   //internal
   check(data, 'mustExists', 'string');
@@ -862,6 +635,10 @@ export function getHash(data) {
   }
 }
 
+/**
+ * getFileHash  calculates hash from file.
+ * @param {string} file filename to be hashed.
+ */
 export function getFileHash(file) {
   //internal
   check(file, 'mustExists', 'string');
@@ -895,6 +672,13 @@ export function getFileHash(file) {
   }
 }
 
+/**
+ * isValidHash  calculates data's hash and compares it
+ * vs the given hash. Hashes needs to be equal to be
+ * valid.
+ * @param {string} data data to be hashed. 
+ * @param {*} hash hash to be validated.
+ */
 export function isValidHash(data, hash) {
   //internal
   check(data, 'mustExists', 'string');
@@ -919,6 +703,14 @@ export function isValidHash(data, hash) {
   }
 }
 
+/**
+ * isValidFileHash  calculates hash to given file and compares it
+ * with the given hash. Both hashes have to ve equals to be valid.
+ * @param {file} file filename to which hash will be calculated
+ * and validated.
+ * @param {array} hash expected hash to be equal to the one that will
+ * be calculated. 
+ */
 export function isValidFileHash(file, hash) {
   //internal
   check(file, 'mustExists', 'string');
@@ -943,6 +735,12 @@ export function isValidFileHash(file, hash) {
   }
 }
 
+/**
+ * buildImageName  returns an image name builded from
+ * given arguments.
+ * @param {string} prefix prefix to add to name.
+ * @param {string} name image's name.
+ */
 export function buildImageName(prefix, name) {
   //internal
   check(prefix, 'mustExists', 'string');
@@ -951,6 +749,11 @@ export function buildImageName(prefix, name) {
   return prefix + '_' + name;
 }
 
+/**
+ * getImgInfo  calculates image's hash, and gets image's
+ * width, height and dimensions.
+ * @param {string} file filename of the image.
+ */
 export async function getImgInfo(file) {
   //internal
   check(file, 'mustExists', 'string');
@@ -1004,6 +807,11 @@ export async function getImgInfo(file) {
   return imgInfo;
 }
 
+/**
+ * getCsvString  returns a quoted string if it contains the separator value.
+ * @param {string} str string that will be quoted if necessary.
+ * @param {string} sep csv separator, default is ','.
+ */
 export function getCsvString(str, sep) {
   //internal
   check(str, 'mustExists', 'string');
@@ -1016,6 +824,10 @@ export function getCsvString(str, sep) {
   else return str;
 }
 
+/**
+ * isValidAttachmentMap  checks @attachmentMap for validity.
+ * @param {object} attachmentMap attachment map object to validate. 
+ */
 export function isValidAttachmentMap(attachmentMap) {
   //internal
   check(attachmentMap, 'mustExists', 'object');
@@ -1040,6 +852,13 @@ export function isValidAttachmentMap(attachmentMap) {
     && confirm(attachmentMap.imgInfo.hash, 'exists') && isOfType(attachmentMap.imgInfo.hash, 'array'));
 }
 
+/**
+ * log  display data in console and writes data to log file.
+ * @param {string} logFile log file to which data will be written.
+ * @param {string} data data to be displaying in console and written
+ * in log file.
+ * @param {object} options configuration options. 
+ */
 export function log(logFile, data, options) {
   //internal
   check(logFile, 'mustExists', 'string');

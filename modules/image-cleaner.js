@@ -257,6 +257,9 @@ class ImageCleaner {
     }
   }
 
+  /**
+   * run  runs the image cleaning process.
+   */
   async run() {
     /**
      * Check: required values
@@ -401,6 +404,9 @@ class ImageCleaner {
     return counters;
   }//end: run()
 
+  /**
+   * showProgress  shows the current cleaning process progress.
+   */
   async showProgress() {
     const bar = new ProgressBar('  [:bar] ' + colors.cyan.dim.bold('cleaning: ') + colors.white(':percent ') + ':msg', {
       complete: '=',
@@ -455,6 +461,10 @@ class ImageCleaner {
     return;
   }
 
+  /**
+   * showReport  prints and writes to runLogFile the run report
+   * corresponding to the current state of the cleaning process. 
+   */
   showReport() {
     let status = '';
     /**

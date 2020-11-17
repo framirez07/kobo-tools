@@ -148,7 +148,7 @@ async function step1() {
    *    c_asset_values_uid
    */
   if(c_asset_values_uid.length > 0) {
-    let select_asset_values_uid = await Utils.toJqSelectBody("uid", c_asset_values_uid, "==", "or");
+    let select_asset_values_uid = Utils.toJqSelectBody("uid", c_asset_values_uid, "==", "or");
     let f1 = `.[]|[select(${select_asset_values_uid})]`;
     jq.push(f1);
   }
@@ -377,7 +377,7 @@ async function step3(input) {
      *    c_submission_values__id
      */
     if(c_submission_values__id.length > 0) {
-      let select_submission_values__id = await Utils.toJqSelectBody("_id", c_submission_values__id, "==", "or");
+      let select_submission_values__id = Utils.toJqSelectBody("_id", c_submission_values__id, "==", "or");
       let f1 = `[.[]|select(${select_submission_values__id})]`;
       jq.push(f1);
     }
