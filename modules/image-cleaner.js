@@ -12,6 +12,7 @@ class ImageCleaner {
   #path = '';
   #cleanedPath = '';
   #deleteImages = false;
+  #runLogPath = '';
   ///////internals//////
   #keeps = [];
   #deletes = [];
@@ -37,11 +38,12 @@ class ImageCleaner {
   /**
    * Constructor
    */
-  constructor(map, path, cleanedPath, deleteImages) {
+  constructor(map, path, cleanedPath, deleteImages, runLogPath) {
     this.map = map;
     this.path = path;
     this.cleanedPath = cleanedPath;
     this.deleteImages = deleteImages !== undefined ? deleteImages : false;
+    this.runLogPath = runLogPath;
   }
 
   /**
@@ -71,6 +73,9 @@ class ImageCleaner {
   get cleanedPath() {
     return this.#cleanedPath;
   }
+  get runLogPath() { 
+    return this.#runLogPath; 
+  }
   get totalActions() { 
     return this.#totalActions; 
   }
@@ -98,6 +103,17 @@ class ImageCleaner {
     this.#deleteImages = value;
     this.#wasRan = false;
     this.#resetCounters();
+  }
+
+  set runLogPath(value) {
+    //internal
+    check(value, 'ifExists', 'string');
+
+    /**
+     * Can be changed on running
+     */
+    //set#
+    this.#runLogPath = value ? value : '';
   }
 
   set path(value) {
@@ -454,12 +470,30 @@ class ImageCleaner {
      */
     if(this.#isRunning) status = colors.green('running');
     
-    //report
+    //prepare report
     let imageCleanerCounters = {cleaned: this.#cleaned.length,  errors: this.#errors.length, totalActions: this.#totalActions, totalActionsExecuted: this.#totalActionsExecuted}
     if(!this.#errors.length) delete imageCleanerCounters.errors;
-    process.stdout.write(`\n`);
-    process.stdout.write('  ' + '['+ status + ']' + colors.cyan.dim.bold('image-cleaning' + ': '));
-    Utils.printReportCounters([{counters: imageCleanerCounters}]);
+    
+    //report
+    if(!this.#runLogPath) {
+      process.stdout.write(`\n`);
+      process.stdout.write('  ' + '['+ status + ']' + colors.cyan.dim.bold('image-cleaning' + ': '));
+      //print counters
+      let e = Object.entries(imageCleanerCounters);
+      for(let j=0; j<e.length; j++) {
+        if(j === 0) process.stdout.write('  ');
+        //key
+        process.stdout.write(`${colors.white(e[j][0])}: `);
+        //value
+        if(e[j][0] === 'errors') process.stdout.write(`${colors.red.bold(e[j][1])}`);
+        else process.stdout.write(`${colors.brightWhite.bold(e[j][1])}`);
+        if(j+1 < e.length) process.stdout.write(', ');
+      }
+      process.stdout.write('\n');
+    } else {
+      Utils.log(this.#runLogPath, `[${status}]${colors.cyan.dim.bold('image-cleaning' + ': ')}`, {onNewLine:true, noNewLine:true});
+      Utils.printReportCounters([{counters: imageCleanerCounters}], this.#runLogPath, {noTimestamp:true});
+    }
     return;
   }
 }//end: class ImageCleaner

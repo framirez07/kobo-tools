@@ -1,14 +1,59 @@
-import { parseJSONFile, fileExists, dirExists, makeDirPath, getCurrentTimestamp } from './utils.js';
+/**
+ * configs.js
+ * 
+ * Helper module that provides the following main functions:
+ *   - init()           getConfigs() & setupOutputDir()
+ *   - getConfigs()     builds object with configs.
+ *   - setupOutputDir() builds output dirs tree.
+ */
 import globals from '../configs/globals.js';
 import { check, confirm, isOfType } from './checks.js';
-import csvParseSync from 'csv-parse/lib/sync.js';
+import * as Utils from './utils.js';
 import fs from 'fs-extra';
 import { resolve, join, parse } from 'path';
+import csvParseSync from 'csv-parse/lib/sync.js';
+import colors from 'colors/safe.js';
 
 /**
- * getConfigs   Calculates configurations.
- * The object returned by this function has the following
- * attributes:
+ * init  build configurations object and setup the
+ * output dirs tree.
+ * @param {object} program 
+ * @param {string} mainDir
+ * @returns configuration object 
+ */
+export function init(program, mainDir) {
+  let configs = null;
+  try {
+    /**
+     * Set configurations
+     */
+    configs = getConfigs(program, mainDir);
+    //internal
+    check(configs, 'mustExists', 'object');
+    /**
+     * Set output dirs tree
+     */
+    setupOutputDir(configs);
+    /**
+     * Write configs
+     */
+    let log_path = join(configs.currentRunPath);
+    let log_file = join(log_path,`run-configs.json`);
+    Utils.makeDirPath(log_path);
+    Utils.writeFile(log_file, JSON.stringify(configs, null, 2), {async:true});
+    
+  } catch(error) {
+    console.log('\n'+colors.red(error.name)+':', error.message);
+    console.log(colors.gray(error.stack.slice(error.name.length + error.message.length + 2 + 1)));
+    process.exit(1);
+  }
+  return configs;
+}
+
+/**
+ * getConfigs   builds configurations object.
+ * 
+ * The configurations object has the following attributes:
  * {
  *    apiServerUrl
  *    mediaServerUrl
@@ -61,7 +106,7 @@ export function getConfigs(program, mainDir) {
     let _configFile_path = null;
     let _first_path = resolve(program.configFile);
 
-    if(fileExists(_first_path)) _configFile_path = _first_path;
+    if(Utils.fileExists(_first_path)) _configFile_path = _first_path;
     else {
       _lookedPaths.push(_first_path);
 
@@ -69,10 +114,10 @@ export function getConfigs(program, mainDir) {
       if(_dir === '') {
         let _second_path = resolve(join(mainDir, "run-configs", program.configFile));
         let _third_path = resolve(join(mainDir, program.configFile));
-        if(fileExists(_second_path)) _configFile_path = _second_path;
+        if(Utils.fileExists(_second_path)) _configFile_path = _second_path;
         else {
           _lookedPaths.push(_second_path);
-          if(fileExists(_third_path)) _configFile_path = _third_path;
+          if(Utils.fileExists(_third_path)) _configFile_path = _third_path;
           else _lookedPaths.push(_third_path);
         }
       }
@@ -80,13 +125,13 @@ export function getConfigs(program, mainDir) {
     //check
     if(!_configFile_path) throw new Error(`config file not found: ${program.configFile} - in: \n${JSON.stringify(_lookedPaths, null, 2)}`);
 
-    runConfigs = parseJSONFile(_configFile_path);
+    runConfigs = Utils.parseJSONFile(_configFile_path);
     checkRunConfigs(runConfigs, mainDir);
 
     //set submission ids
     for(let i=0; i<runConfigs.filters.length; i++) {
       let filter = runConfigs.filters[i];
-      filter._submissionIds = getSubmissionIds(filter.submissionIdsCsv, filter.submissionIds, mainDir);
+      filter._submissionIds = getSubmissionIds(filter, mainDir);
     }
   }
 
@@ -168,16 +213,15 @@ export function getConfigs(program, mainDir) {
 }
 
 /**
- * setupOutputDir  Set up output dirs tree
+ * setupOutputDir  Set up output dirs tree and
+ * adds paths to @configs object.
  * 
  * output/
  *      .attachments_map/
  *      images/
- *      data/
  *      runs/
- *          currentRun/
+ *          run_<timestamp>/
  *                    logs/
- *                    maps/
  *                    steps/
  *                    images_deleted/
  * 
@@ -185,11 +229,10 @@ export function getConfigs(program, mainDir) {
  *  outputPath
  *  attachmentsMap
  *  imagesPath
- *  dataPath
  *  runsPath
  *  currentRunPath
  *  logsPath
- *  mapsPath
+ *  runLogPath
  *  stepsPath
  *  imagesDeletedPath
  * 
@@ -211,13 +254,13 @@ export function setupOutputDir(configs) {
     let _output_dir = null;
     let _first_path = resolve(configs.outputDir);
 
-    if(dirExists(_first_path)) _output_dir = _first_path;
+    if(Utils.dirExists(_first_path)) _output_dir = _first_path;
     else {
       _lookedPaths.push(_first_path);
       let _dir = parse(configs.outputDir).dir;
       if(_dir === '') {
         let _second_path = resolve(join(configs.mainDir, configs.outputDir));
-        if(dirExists(_second_path)) _output_dir = _second_path;
+        if(Utils.dirExists(_second_path)) _output_dir = _second_path;
         else _lookedPaths.push(_second_path);
       }
     }
@@ -230,8 +273,8 @@ export function setupOutputDir(configs) {
      * Check if default dir exists, and if not, create it.
      */
     let _output_dir = resolve(join(configs.mainDir, 'runs'));
-    if(dirExists(_output_dir)) configs.outputPath = _output_dir;
-    else configs.outputPath = makeDirPath(_output_dir);
+    if(Utils.dirExists(_output_dir)) configs.outputPath = _output_dir;
+    else configs.outputPath = Utils.makeDirPath(_output_dir);
   }
   /**
    * Set up runs dirs tree
@@ -239,98 +282,97 @@ export function setupOutputDir(configs) {
    * output/
    *      .attachments_map/
    *      images/
-   *      data/
    *      runs/
-   *          currentRun/
+   *          run_<timestamp>/
    *                    logs/
-   *                    maps/
    *                    steps/
    *                    images_deleted/
    * 
    *  
    */
   configs.attachmentsMap = resolve(join(configs.outputPath, ".attachments_map"));
-  makeDirPath(configs.attachmentsMap);
+  Utils.makeDirPath(configs.attachmentsMap);
 
   configs.imagesPath = resolve(join(configs.outputPath, "images"));
-  makeDirPath(configs.imagesPath);
-
-  configs.dataPath = resolve(join(configs.outputPath, "data"));
-  makeDirPath(configs.dataPath);
+  Utils.makeDirPath(configs.imagesPath);
 
   configs.runsPath = resolve(join(configs.outputPath, "runs"));
-  makeDirPath(configs.runsPath);
+  Utils.makeDirPath(configs.runsPath);
 
   //get current run dir name
-  let d = './run_'+getCurrentTimestamp();
+  let d = './run_'+Utils.getCurrentTimestamp();
   let _current_run_path = resolve(join(configs.runsPath, d));
   let max_tries = 100;
   let tries = 1;
   //avoid repeated dir name
-  while(dirExists(_current_run_path)&&(tries<=max_tries)) {
-    d = './run_'+getCurrentTimestamp()+'-'+String(tries);
+  while(Utils.dirExists(_current_run_path)&&(tries<=max_tries)) {
+    d = './run_'+Utils.getCurrentTimestamp()+'-'+String(tries);
     t_current_run_path = resolve(d);
     tries++;
   }
   //check
-  if(dirExists(_current_run_path)) throw new Error('very bad error in here');
+  if(Utils.dirExists(_current_run_path)) throw new Error('run path could not be created');
 
   configs.currentRunPath = _current_run_path;
-  makeDirPath(configs.currentRunPath);
+  Utils.makeDirPath(configs.currentRunPath);
 
   configs.logsPath = resolve(join(configs.currentRunPath, "logs"));
-  makeDirPath(configs.logsPath);
-
-  configs.mapsPath = resolve(join(configs.currentRunPath, "maps"));
-  makeDirPath(configs.mapsPath);
+  Utils.makeDirPath(configs.logsPath);
+  configs.runLogPath = resolve(join(configs.logsPath, "run.log"));
 
   configs.stepsPath = resolve(join(configs.currentRunPath, "steps"));
-  makeDirPath(configs.stepsPath);
+  Utils.makeDirPath(configs.stepsPath);
 
   configs.imagesDeletedPath = resolve(join(configs.currentRunPath, "images_deleted"));
-  makeDirPath(configs.imagesDeletedPath);
+  Utils.makeDirPath(configs.imagesDeletedPath);
 
-  //console.log(configs)
   return configs;
 }
 
 /**
- * getSubmissionIds - get total submission ids.
- * @param {string} submissionIdsCsv
- * @param {array}  submissionIds
+ * getSubmissionIds - get total set of submission ids in @filter.
+ * @param {object} filter object with filter configurations. 
  * @param {string} mainDir dirname of the main js script.
  */
-function getSubmissionIds(submissionIdsCsv, submissionIds, mainDir) {
+function getSubmissionIds(filter, mainDir) {
   //internal
-  check(submissionIdsCsv, 'ifExists', 'string');
-  check(submissionIds, 'ifExists', 'array');
+  check(filter, 'mustExists', 'object');
+  check(filter.submissionIds, 'ifExists', 'array');
+  check(filter.submissionIdsCsv, 'ifExists', 'string');
   check(mainDir, 'mustExists', 'string');
 
   let _submissionIds = [];
 
   //add ids from @submissionIds
-  if(submissionIds) addSubmissionIds(submissionIds, _submissionIds);
+  if(filter.submissionIds) addSubmissionIds(filter.submissionIds, _submissionIds);
 
   //add ids from @submissionIdsCsv
-  if(submissionIdsCsv) {
-    let sids = getSubmissionIdsFromCsv(submissionIdsCsv, mainDir);
+  if(filter.submissionIdsCsv) {
+    let sids = getSubmissionIdsFromCsv(filter, mainDir);
     addSubmissionIds(sids, _submissionIds);
   }
 
   return _submissionIds;
 }
 
-function getSubmissionIdsFromCsv(submissionIdsCsv, mainDir, idColumn, delimiter) {
+/**
+ * getSubmissionIdsFromCsv  gets ids from csv file. Throw
+ * error if some id isn't valid.
+ * @param {object} filter object with filter configurations.
+ * @param {string} mainDir dirname of the main js script.
+ */
+function getSubmissionIdsFromCsv(filter, mainDir) {
   //internal
-  check(submissionIdsCsv, 'mustExists', 'string');
+  check(filter, 'mustExists', 'object');
+  check(filter.submissionIdsCsv, 'mustExists', 'string');
+  check(filter.submissionIdsCsvIdColumnName, 'ifExists', 'string');
+  check(filter.submissionIdsCsvSeparator, 'ifExists', 'string');
   check(mainDir, 'mustExists', 'string');
-  check(delimiter, 'ifExists', 'string');
-  check(idColumn, 'ifExists', 'string');
   
   let data = null;
   let records = null;
-  let _idColumn = (idColumn) ? idColumn : 'id';
-  let _delimiter = (delimiter) ? delimiter : ',';
+  let _idColumn = (filter.submissionIdsCsvIdColumnName) ? filter.submissionIdsCsvIdColumnName : 'id';
+  let _delimiter = (filter.submissionIdsCsvSeparator) ? filter.submissionIdsCsvSeparator : ',';
   let ids = [];
   let errors = [];
 
@@ -342,33 +384,32 @@ function getSubmissionIdsFromCsv(submissionIdsCsv, mainDir, idColumn, delimiter)
    */
   let _lookedPaths = [];
   let _file = null;
-  let _first_path = resolve(submissionIdsCsv);
+  let _first_path = resolve(filter.submissionIdsCsv);
 
-  if(fileExists(_first_path)) _file = _first_path;
+  if(Utils.fileExists(_first_path)) _file = _first_path;
   else {
     _lookedPaths.push(_first_path);
 
-    let _dir = parse(submissionIdsCsv).dir;
+    let _dir = parse(filter.submissionIdsCsv).dir;
     if(_dir === '') {
-      let _second_path = resolve(join(mainDir, "input", submissionIdsCsv));
-      let _third_path = resolve(join(mainDir, submissionIdsCsv));
-      if(fileExists(_second_path)) _file = _second_path;
+      let _second_path = resolve(join(mainDir, "input", filter.submissionIdsCsv));
+      let _third_path = resolve(join(mainDir, filter.submissionIdsCsv));
+      if(Utils.fileExists(_second_path)) _file = _second_path;
       else {
         _lookedPaths.push(_second_path);
-        if(fileExists(_third_path)) _file = _third_path;
+        if(Utils.fileExists(_third_path)) _file = _third_path;
         else _lookedPaths.push(_third_path);
       }
     }
   }
-
   //check
-  if(!_file) throw new Error(`submissionIdsCsv file not found: ${submissionIdsCsv} - in: \n${JSON.stringify(_lookedPaths, null, 2)}`);
+  if(!_file) throw new Error(`submissionIdsCsv file not found: ${filter.submissionIdsCsv} - in: \n${JSON.stringify(_lookedPaths, null, 2)}`);
 
   //read
   try {
     data = fs.readFileSync(_file, 'utf8');
   } catch (e) {
-    throw new Error(`file read operation failed: ${_file}\n` + e.message);
+    throw new Error(`file read operation failed: ${_file} - error: ` + e.message);
   }
 
   //parse
@@ -378,10 +419,10 @@ function getSubmissionIdsFromCsv(submissionIdsCsv, mainDir, idColumn, delimiter)
       skip_empty_lines: true,
       delimiter: _delimiter
     })
+    //internal
+    check(records, 'mustExists', 'array');
     //check
-    if(!records) throw new Error('csv parsed result is null');
-    if(!Array.isArray(records)) throw new Error('csv parsed result is not an array');
-    if(records.length === 0) throw new Error('csv parsed result is empty');
+    if(records.length === 0) throw new Error(`csv parsed result is empty - csv file: ${_file}`);
   } catch (e) {
     throw new Error(`CSV parse operation failed: ` + e.message);
   }
@@ -390,8 +431,8 @@ function getSubmissionIdsFromCsv(submissionIdsCsv, mainDir, idColumn, delimiter)
 
   //get headers
   let headers = records[0];
-  //check
-  if(!headers || !Array.isArray(headers)) throw new Error('expected array in csv @headers');
+  //internal
+  check(headers, 'mustExists', 'array');
 
   //check _id column
   let idColumnCount = 0;
@@ -401,14 +442,15 @@ function getSubmissionIdsFromCsv(submissionIdsCsv, mainDir, idColumn, delimiter)
     if(h === _idColumn) { idColumnCount++; idColumnIndex = i };
   }
   //check
-  if(idColumnCount === 0) throw new Error(`column '${_idColumn}' not found in csv @headers`);
-  if(idColumnCount > 1) throw new Error(`column '${_idColumn}' found more than once in csv @headers`);
+  if(idColumnCount === 0) throw new Error(`id column '${_idColumn}' not found in csv @headers`);
+  if(idColumnCount > 1) throw new Error(`id column '${_idColumn}' found more than once in csv @headers`);
 
   //get ids
   for(let i=1; i<records.length; i++) {
     let r = records[i];
+    //internal
+    check(r, 'mustExists', 'array');
     //check
-    if(!r || !Array.isArray(r)) throw new Error(`expected array in csv @records`);
     if(!r[idColumnIndex]) errors.push(`id is empty - in csv @records entry ${i}`);
     else {
       let _id = Number.parseFloat(r[idColumnIndex]);
@@ -423,6 +465,12 @@ function getSubmissionIdsFromCsv(submissionIdsCsv, mainDir, idColumn, delimiter)
   else return ids;
 }
 
+/**
+ * 
+ * @param {array} submissionIds input array with ids to add to output array. 
+ * @param {array} _submissionIds ouput array where ids from input array will
+ * be added into.
+ */
 function addSubmissionIds(submissionIds, _submissionIds) {
   //internal
   check(submissionIds, 'mustExists', 'array');
@@ -453,7 +501,8 @@ function addSubmissionIds(submissionIds, _submissionIds) {
 }
 
 /**
- * checkRunConfigs - Check configs object.
+ * checkRunConfigs - Check configs object. Throw errors if
+ * there are not valid configs.
  * @param {object} configs
  */
 function checkRunConfigs(configs) {
@@ -466,7 +515,8 @@ function checkRunConfigs(configs) {
   let errors = [];
   let valid_keys = ['filters', 'token', 'apiServerUrl', 'mediaServerUrl', 'outputDir', 'maxRequestRetries',
                     'maxDownloadRetries', 'requestTimeout', 'connectionTimeout', 'downloadTimeout', 'deleteImages'];
-  let valid_filters_keys = ['assetId', 'submissionIdsCsv', 'submissionIds'];
+  let valid_filters_keys = ['assetId', 'submissionIdsCsv', 'submissionIds', 'submissionIdsCsvIdColumnName',
+                            'submissionIdsCsvSeparator'];
 
   //check: keys
   let o_keys = Object.keys(configs);
@@ -534,6 +584,12 @@ function checkRunConfigs(configs) {
           else if(filter.assetId === '') errors.push(`non-empty string expected in key 'assetId' but is empty - in @filters entry ${i}`);
           else if(typeof filter.assetId !== 'string') errors.push(`string expected in key 'assetId' but is not a string - in @filters entry ${i}`);
 
+          //check: submissionIds
+          if(filter.submissionIds !== undefined) {
+            if(filter.submissionIds === null) errors.push(`array expected in key 'submissionIds' but is null - in @filters entry ${i}`);
+            else if(!Array.isArray(filter.submissionIds)) errors.push(`array expected in key 'submissionIds' - in @filters entry ${i}`);
+          }
+
           //check: submissionIdsCsv
           if(filter.submissionIdsCsv !== undefined) {
             if(filter.submissionIdsCsv === null) errors.push(`string expected in key 'submissionIdsCsv' but is null - in @filters entry ${i}`);
@@ -541,11 +597,24 @@ function checkRunConfigs(configs) {
             else if(typeof filter.submissionIdsCsv !== 'string') errors.push(`string expected in key 'submissionIdsCsv' but is not a string - in @filters entry ${i}`);
           }
 
-          //check: submissionIds
-          if(filter.submissionIds !== undefined) {
-            if(filter.submissionIds === null) errors.push(`array expected in key 'submissionIds' but is null - in @filters entry ${i}`);
-            else if(!Array.isArray(filter.submissionIds)) errors.push(`array expected in key 'submissionIds' - in @filters entry ${i}`);
+          //check: submissionIdsCsvIdColumnName
+          if(filter.submissionIdsCsvIdColumnName !== undefined) {
+            if(filter.submissionIdsCsvIdColumnName === null) errors.push(`string expected in key 'submissionIdsCsvIdColumnName' but is null - in @filters entry ${i}`);
+            else if(filter.submissionIdsCsvIdColumnName === '') errors.push(`string expected in key 'submissionIdsCsvIdColumnName' but is empty - in @filters entry ${i}`);
+            else if(typeof filter.submissionIdsCsvIdColumnName !== 'string') errors.push(`string expected in key 'submissionIdsCsvIdColumnName' but is not a string - in @filters entry ${i}`);
+
+            if(!filter.submissionIdsCsv === undefined) errors.push(`key 'submissionIdsCsvIdColumnName' is defined but 'submissionIdsCsv' isn't - in @filters entry ${i}`);
           }
+
+          //check: submissionIdsCsvSeparator
+          if(filter.submissionIdsCsvSeparator !== undefined) {
+            if(filter.submissionIdsCsvSeparator === null) errors.push(`string expected in key 'submissionIdsCsvSeparator' but is null - in @filters entry ${i}`);
+            else if(filter.submissionIdsCsvSeparator === '') errors.push(`string expected in key 'submissionIdsCsvSeparator' but is empty - in @filters entry ${i}`);
+            else if(typeof filter.submissionIdsCsvSeparator !== 'string') errors.push(`string expected in key 'submissionIdsCsvSeparator' but is not a string - in @filters entry ${i}`);
+
+            if(!filter.submissionIdsCsv === undefined) errors.push(`key 'submissionIdsCsvSeparator' is defined but 'submissionIdsCsv' isn't - in @filters entry ${i}`);
+          }
+
         }//end: for each filter entry
       }
     }

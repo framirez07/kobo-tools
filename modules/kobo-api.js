@@ -1,6 +1,7 @@
-import { applyFilters, get } from './utils.js';
+import * as Utils from './utils.js';
 import { check } from './checks.js';
 import axios from 'axios';
+import { join } from 'path';
 import colors from 'colors/safe.js';
 import ProgressBar from 'progress';
 
@@ -18,7 +19,9 @@ export async function getAssets(options) {
   check(options.apiServerUrl, 'mustExists', 'string');
   check(options.maxRequestRetries, 'defined', 'number');
   check(options.requestTimeout, 'defined', 'number');
-  check(options.connectionTimeout, 'defined', 'number');
+  check(options.resFilters, 'ifExists', 'object');
+  check(options.stepsPath, 'mustExists', 'string');
+  check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
   let next = `${options.apiServerUrl}/assets/?limit=1&offset=0`;
@@ -32,7 +35,7 @@ export async function getAssets(options) {
     total: 100 //will be updated with res.data.count
   });
   bar.tick(0);
-
+  
   //counters
   let assetsCount = 0;
   let assetsFetched = 0;
@@ -51,6 +54,9 @@ export async function getAssets(options) {
     
     //request cycle
     while(!done && retries<=options.maxRequestRetries && !response) {
+      //log
+      Utils.log(options.runLogPath, next, {noNewLine:true, logOnly:true});
+
       //request options
       let CancelToken = axios.CancelToken;
       let source = CancelToken.source();
@@ -89,9 +95,9 @@ export async function getAssets(options) {
         //rejected
         (error) => { throw error })
       .catch((error) => {
-        //msg
-        process.stdout.write("  " + colors.grey(error.message) + "\n");
-        console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries);
+        //log
+        Utils.log(options.runLogPath, colors.grey(error.message));
+        Utils.log(options.runLogPath, `${colors.grey('resquest failed on try:')} ${colors.yellow.dim(retries)}${colors.white.dim("/")}${colors.yellow.dim(options.maxRequestRetries)}`);
         retries++;
       });
       //clear
@@ -131,20 +137,39 @@ export async function getAssets(options) {
     //update endpoint
     next = response.data.next;
 
+    //log
+    Utils.log(options.runLogPath, '100%', {logOnly:true});
+
     /**
      * -------------
      * Apply filters
      * -------------
      */
     let filtered_result = [];
-    if(options.resFilters && typeof options.resFilters === 'object') {
-      filtered_result = await applyFilters(options.resFilters, response.data.results);
+    if(options.resFilters) {
+      filtered_result = await Utils.applyFilters(options.resFilters, response.data.results);
     } else {
       filtered_result = [...response.data.results];
     }
     //join results
     results = [...results, ...filtered_result];
 
+    /**
+     * Write response data & filters
+     */
+    //write response.data
+    let log_path = join(options.stepsPath, `1_get_assets`, `data`);
+    let log_file = join(log_path,`asset-response-data-${assetsFetched}.json`);
+    Utils.makeDirPath(log_path);
+    Utils.writeFile(log_file, JSON.stringify(response.data, null, 2), {async:false});
+
+    //write filters
+    if(options.resFilters) {
+      log_path = join(options.stepsPath, `1_get_assets`, `filters`);
+      log_file = join(log_path,`asset-response-filters-${assetsFetched}.json`);
+      Utils.makeDirPath(log_path);
+      Utils.writeFile(log_file, JSON.stringify(options.resFilters, null, 2), {async:false});  
+    }
   }//end: while(next)
 
   /**
@@ -184,6 +209,9 @@ export async function getAssetInfo(uid, options) {
   check(options.maxRequestRetries, 'defined', 'number');
   check(options.requestTimeout, 'defined', 'number');
   check(options.connectionTimeout, 'defined', 'number');
+  check(options.resFilters, 'ifExists', 'object');
+  check(options.step_log_path, 'mustExists', 'string');
+  check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
   let next = `${options.apiServerUrl}/assets/${uid}`;
@@ -211,6 +239,9 @@ export async function getAssetInfo(uid, options) {
 
   //request cycle
   while(!done && retries<=options.maxRequestRetries && !response) {
+    //log
+    Utils.log(options.runLogPath, next, {noNewLine:true, logOnly:true});
+
     //tick interval (virtual progress)
     let tickinterval = setInterval(() => {if((bar.curr/bar.total) < .8) bar.tick(1);}, 300);
 
@@ -249,9 +280,9 @@ export async function getAssetInfo(uid, options) {
       //rejected
       (error) => { throw error })
     .catch((error) => {
-      //msg
-      process.stdout.write("  " + colors.grey(error.message) + "\n");
-      console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries);
+      //log
+      Utils.log(options.runLogPath, colors.grey(error.message));
+      Utils.log(options.runLogPath, `${colors.grey('resquest failed on try:')} ${colors.yellow.dim(retries)}${colors.white.dim("/")}${colors.yellow.dim(options.maxRequestRetries)}`);
       retries++;
     });
     //clear
@@ -288,19 +319,39 @@ export async function getAssetInfo(uid, options) {
   //update progress: complete
   while(!bar.complete) bar.tick(1);
 
+  //log
+  Utils.log(options.runLogPath, '100%', {logOnly:true});
+
   /**
    * -------------
    * Apply filters
    * -------------
    */
   let filtered_result = [];
-  if(options.resFilters && typeof options.resFilters === 'object') {
-    filtered_result = await applyFilters(options.resFilters, [response.data]);
+  if(options.resFilters) {
+    filtered_result = await Utils.applyFilters(options.resFilters, [response.data]);
   } else {
     filtered_result = [response.data];
   }
   //join results
   results = [...results, ...filtered_result];
+  
+  /**
+   * Write response data & filters
+   */
+  //write response.data
+  let step_log_path = join(options.step_log_path, `data`);
+  let step_log_file = join(step_log_path,`${uid}-asset-response-data.json`);
+  Utils.makeDirPath(step_log_path);
+  Utils.writeFile(step_log_file, JSON.stringify(response.data, null, 2), {async:false});
+
+  //write filters
+  if(options.resFilters) {
+    step_log_path = join(options.step_log_path, `filters`);
+    step_log_file = join(step_log_path,`${uid}-asset-response-filters.json`);
+    Utils.makeDirPath(step_log_path);
+    Utils.writeFile(step_log_file, JSON.stringify(options.resFilters, null, 2), {async:false});  
+  }
 
   /**
    * Report
@@ -341,6 +392,9 @@ export async function getSubmissions(uid, options) {
   check(options.maxRequestRetries, 'defined', 'number');
   check(options.requestTimeout, 'defined', 'number');
   check(options.connectionTimeout, 'defined', 'number');
+  check(options.resFilters, 'ifExists', 'object');
+  check(options.step_log_path, 'mustExists', 'string');
+  check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
   let next = `${options.apiServerUrl}/assets/${uid}/submissions/`;
@@ -368,6 +422,9 @@ export async function getSubmissions(uid, options) {
 
   //request cycle
   while(!done && retries<=options.maxRequestRetries && !response) {
+    //log
+    Utils.log(options.runLogPath, next, {noNewLine:true, logOnly:true});
+
     //tick interval (virtual progress)
     let tickinterval = setInterval(() => {if((bar.curr/bar.total) < .8) bar.tick(1);}, 300);
 
@@ -406,9 +463,9 @@ export async function getSubmissions(uid, options) {
       //rejected
       (error) => { throw error })
     .catch((error) => {
-      //msg
-      process.stdout.write("  " + colors.grey(error.message) + "\n");
-      console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries);
+      //log
+      Utils.log(options.runLogPath, colors.grey(error.message));
+      Utils.log(options.runLogPath, `${colors.grey('resquest failed on try:')} ${colors.yellow.dim(retries)}${colors.white.dim("/")}${colors.yellow.dim(options.maxRequestRetries)}`);
       retries++;
     });
     //clear
@@ -444,6 +501,8 @@ export async function getSubmissions(uid, options) {
   //update progress: complete
   while(!bar.complete) bar.tick(1);
 
+  //log
+  Utils.log(options.runLogPath, '100%', {logOnly:true});
 
   /**
    * -------------
@@ -451,13 +510,30 @@ export async function getSubmissions(uid, options) {
    * -------------
    */
   let filtered_result = [];
-  if(options.resFilters && typeof options.resFilters === 'object') {
-    filtered_result = await applyFilters(options.resFilters, response.data);
+  if(options.resFilters) {
+    filtered_result = await Utils.applyFilters(options.resFilters, response.data);
   } else {
     filtered_result = [...response.data];
   }
   //join results
   results = [...results, ...filtered_result];
+
+  /**
+   * Write response data & filters
+   */
+  //write response.data
+  let step_log_path = join(options.step_log_path, `data`);
+  let step_log_file = join(step_log_path,`submission-response-data-${uid}.json`);
+  Utils.makeDirPath(step_log_path);
+  Utils.writeFile(step_log_file, JSON.stringify(response.data, null, 2), {async:false});
+
+  //write filters
+  if(options.resFilters) {
+    step_log_path = join(options.step_log_path, `filters`);
+    step_log_file = join(step_log_path,`submission-response-filters-${uid}.json`);
+    Utils.makeDirPath(step_log_path);
+    Utils.writeFile(step_log_file, JSON.stringify(options.resFilters, null, 2), {async:false});  
+  }
 
   /**
    * Report
@@ -497,6 +573,8 @@ export async function download(url, options) {
   check(options.maxRequestRetries, 'defined', 'number');
   check(options.requestTimeout, 'defined', 'number');
   check(options.connectionTimeout, 'defined', 'number');
+  check(options.step_log_path, 'mustExists', 'string');
+  check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
   let next = `${options.mediaServerUrl}/${url}`;
@@ -508,6 +586,9 @@ export async function download(url, options) {
 
   //request cycle
   while(!done && retries<=options.maxRequestRetries && !result) {
+    //log
+    Utils.log(options.runLogPath, next, {noNewLine:true, logOnly:true});
+
     //request options
     let CancelToken = axios.CancelToken;
     let source = CancelToken.source();
@@ -516,8 +597,8 @@ export async function download(url, options) {
     let headers = {
       'Connection': 'keep-alive'
     };
-      //header: auth token
-      if(options.token) headers['Authorization'] = `Token ${options.token}`;
+    //header: auth token
+    if(options.token) headers['Authorization'] = `Token ${options.token}`;
 
     let req_options = {
       headers,
@@ -543,27 +624,28 @@ export async function download(url, options) {
         return response;
       },
       //rejected
-      (error) => {
-        //msg
-        console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries, " - error: ", colors.green(error.message));
-        //add
-        retries++;
-      })
+      (error) => { throw error })
     .catch((error) => {
-      //msg
-      console.log(retryMsgColor('    resquest failed on try:'), retries, "/", options.maxRequestRetries, " - error: ", colors.green(error.message));
-      //add
+      //log
+      Utils.log(options.runLogPath, colors.grey(error.message));
+      Utils.log(options.runLogPath, `${colors.grey('resquest failed on try:')} ${colors.yellow.dim(retries)}${colors.white.dim("/")}${colors.yellow.dim(options.maxRequestRetries)}`);
       retries++;
     });
     //clear
     clearTimeout(timeout);
 
   }//end: while
-  //check
-  if(result===null||result===undefined) return null;
-  if(typeof result !== 'object') return null;
-  if(!result.headers || typeof result.headers !== 'object') return null;
-  if(!result.headers['content-length'] || typeof result.headers['content-length'] !== 'string') return null;
-
-  return [{readStream: result.data, contentLength: parseInt(result.headers['content-length'])}];
+  //check: fails after max retries
+  if(!result) throw new Error(`download fails after ${options.maxRequestRetries} retries`);
+  //internal
+  check(result, 'mustExists', 'object');
+  check(result.headers, 'mustExists', 'object');
+  check(result.headers['content-length'], 'ifExists', 'string');
+  check(result.headers['content-type'], 'ifExists', 'string');
+    
+  return [{
+    readStream: result.data, 
+    contentLength: result.headers['content-length'] ? parseFloat(result.headers['content-length']) : result.headers['content-length'],
+    contentType: result.headers['content-type'],
+  }];
 }

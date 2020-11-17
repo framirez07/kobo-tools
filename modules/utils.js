@@ -1,5 +1,5 @@
 import globals from '../configs/globals.js';
-import { check } from './checks.js';
+import { check, confirm, isOfType } from './checks.js';
 import nodejq  from 'node-jq';
 import axios from 'axios';
 import { resolve, join } from 'path';
@@ -297,10 +297,15 @@ export function makeDirPath(dirPath) {
   }
 }
 
-export function writeFile(filePath, data) {
-  //internal check
-  if(!filePath || typeof filePath !== 'string') throw new Error('expected string in @filePath');
-  if(!data || typeof data !== 'string') throw new Error('expected string in @data');
+export function writeFile(filePath, data, options) {
+  //internal
+  check(filePath, 'mustExists', 'string');
+  check(data, 'mustExists', 'string');
+  check(options, 'ifExists', 'object');
+
+  //options
+  let _async = (options&&options.async) ? options.async : false;
+  
 
   //resolve path
   let _path = null;
@@ -316,7 +321,42 @@ export function writeFile(filePath, data) {
     /**
      * Write new file even if it exists.
      */
-    fs.writeFileSync(_path, data, {mode: 0o1664});
+    if(_async) fs.writeFile(_path, data, {mode: 0o1664}, (err) => { if (err) throw err;});
+    else fs.writeFileSync(_path, data, {mode: 0o1664});
+
+    return _path;
+  } catch (e) {
+    throw new Error(`trying to write file fails: ${_path} - error: ${e.message}`);
+  }
+}
+export function appendFile(filePath, data, options) {
+  //internal
+  check(filePath, 'mustExists', 'string');
+  check(data, 'mustExists', 'string');
+  check(options, 'ifExists', 'object');
+
+  //options
+  let onNewLine = (options&&options.onNewLine) ? options.onNewLine : false;
+  let _async = (options&&options.async) ? options.async : false;
+  
+  //resolve path
+  let _path = null;
+  try {
+    _path = resolve(filePath);
+  } catch (e) {
+    console.error(e);
+    throw new Error(`trying to resolve path fails: ${filePath} - error: ${e.message}`);
+  }
+
+  //append
+  try {
+    /**
+     * Append to file or create a new file if not exists.
+     */
+    let _data = (onNewLine) ? '\n'+data : data;
+    if(_async) fs.appendFile(_path, _data, {mode: 0o1664}, (err) => { if (err) throw err;});
+    else fs.appendFileSync(_path, _data, {mode: 0o1664});
+
     return _path;
   } catch (e) {
     throw new Error(`trying to write file fails: ${_path} - error: ${e.message}`);
@@ -324,8 +364,8 @@ export function writeFile(filePath, data) {
 }
 
 export function deletePath(d_path) {
-  //internal check
-  if(!d_path || typeof d_path !== 'string') throw new Error(`expected string in @d_path`);
+  //internal
+  check(d_path, 'mustExists', 'string');
   
   // resolve path
   let _path = null;
@@ -426,21 +466,36 @@ export function getDirEntries(dirPath, options) {
 /**
  * getCurrentTimestamp returns formated current timestamp.
  */
-export function getCurrentTimestamp() {
+export function getCurrentTimestamp(options) {
+  //internal
+  check(options, 'ifExists', 'object');
+  
   let d = new Date(Date.now());
-  let yyyy = d.getFullYear();
-  let MM = (d.getMonth() + 1);
-  let dd = d.getDate();
-  let hh = d.getHours();
-  let mm = d.getMinutes();
-  let ss = d.getSeconds();
+  let yyyy = d.getFullYear().toString();
+  let MM = (d.getMonth() + 1).toString();
+  let dd = d.getDate().toString();
+  let hh = d.getHours().toString();
+  let mm = d.getMinutes().toString();
+  let ss = d.getSeconds().toString();
+  let mmm= d.getMilliseconds().toString();
 
-  if (MM.length < 2) 
+  if (MM.length < 2)
       MM = '0' + mm;
-  if (dd.length < 2) 
+  if (dd.length < 2)
       dd = '0' + dd;
+  if (hh.length < 2)
+      hh = '0' + hh;
+  if (mm.length < 2)
+      mm = '0' + mm;
+  if (ss.length < 2)
+      ss = '0' + ss;
+  if (mmm.length < 2)
+      mmm = '00' + mmm;
+  else if(mmm.length < 3)
+      mmm = '0' + mmm;
 
-  return [yyyy, MM, dd, hh, mm, ss].join('-');
+  if(options && options.style === 'log') return `${yyyy}-${MM}-${dd} ${hh}:${mm}:${ss}.${mmm}`;
+  else return [yyyy, MM, dd, hh, mm, ss].join('-');
 }
 
 /**
@@ -716,9 +771,13 @@ export function parseJSONFile(file) {
   return o;
 }
 
-export function printReportCounters(report) {
+export function printReportCounters(report, logfile, options) {
   //internal
   check(report, 'mustExists', 'array');
+  check(logfile, 'mustExists', 'string');
+  check(options, 'ifExists', 'object');
+
+  let noTimestamp = (options&&options.noTimestamp) ? options.noTimestamp : false;
 
   for(let i=0; i<report.length; i++) {
     let counters = report[i].counters;
@@ -730,30 +789,34 @@ export function printReportCounters(report) {
     //print counters
     let e = Object.entries(counters);
     for(let j=0; j<e.length; j++) {
-      if(j === 0) process.stdout.write('  ');
-      process.stdout.write(colors.white(e[j][0]) + ': ');
-      if(errKeys.includes(e[j][0]))
-           process.stdout.write(colors.red.bold(e[j][1]));
-      else if(warnKeys.includes(e[j][0])) 
-           process.stdout.write(colors.yellow.bold(e[j][1]));
-      else process.stdout.write(colors.brightWhite.bold(e[j][1]));
-      if(j+1 < e.length) process.stdout.write(', ');
+      if(j === 0 && !noTimestamp) log(logfile, '', {noNewLine: true});
+      //key
+      log(logfile, `${colors.white(e[j][0])}: `, {noNewLine: true, noPadding: true, noTimestamp: true});
+      //value
+      if(errKeys.includes(e[j][0])) //case: err
+        log(logfile, `${colors.red.bold(e[j][1])}`, {noNewLine: true, noPadding: true, noTimestamp: true});
+      else if(warnKeys.includes(e[j][0])) //case: warn
+        log(logfile, `${colors.yellow.bold(e[j][1])}`, {noNewLine: true, noPadding: true, noTimestamp: true});
+      else log(logfile, `${colors.brightWhite.bold(e[j][1])}`, {noNewLine: true, noPadding: true, noTimestamp: true}); //case: normal
+      if(j+1 < e.length) log(logfile, ', ', {noNewLine: true, noPadding: true, noTimestamp: true});
     }
-    process.stdout.write('\n');
+    log(logfile, '\n', {noNewLine: true, noPadding: true, noTimestamp: true});
   }
 }
 
-export function printWarnings(warnings) {
+export function printWarnings(warnings, logfile) {
   //internal
   check(warnings, 'mustExists', 'array');
+  check(logfile, 'mustExists', 'string');
+
+  //check
+  if(warnings.length === 0) return;
 
   //print warnings
-  process.stdout.write('    !warnings:\n');
+  log(logfile,'!warnings:');
   for(let i=0; i<warnings.length; i++) {
-    process.stdout.write(colors.white(`      ${i+1}: `) + colors.yellow(warnings[i]));
-    if(i+1 < warnings.length) process.stdout.write(',\n');
+    log(logfile, `${colors.white(`      ${i+1}: `) + colors.yellow(warnings[i])}`);
   }
-  process.stdout.write('\n');
 }
 
 export function getActionReportLine(submissionId, c_s, t_s, action, c_a, t_a, c_f, t_f, image_name, result_msg) {
@@ -775,8 +838,6 @@ export function getActionReportLine(submissionId, c_s, t_s, action, c_a, t_a, c_
 
   return ('  ' 
   + '['
-  //submission counters
-  //+ colors.gray(`s:${submissionId} #${c_s}/${t_s} `)
   //action counters
   + colors.gray(`a:${_action} #`) + colors.white(c_a)+ colors.gray(`/${t_a} `)
   //field counters
@@ -785,10 +846,10 @@ export function getActionReportLine(submissionId, c_s, t_s, action, c_a, t_a, c_
   //image name
   + colors.cyan.dim.bold(image_name) + ': '
   //result 
-  + colors.gray(result_msg) 
-  //progress
-  + `  ${progress}%` 
-  + '\n');
+  + colors.gray(result_msg)
+  //total progress
+  + colors.gray(`  tp:`) + colors.white(`${progress}%`)
+  );
 }
 
 export function getHash(data) {
@@ -917,44 +978,96 @@ export async function getImgInfo(file) {
   }
 
   //hash
-  // try {
-  //   imgInfo.hash = sjcl.hash.sha256.hash(data);
-  // } catch (e) {
-  //   throw new Error(`getImgInfo operation failed: hash failed - ` + e.message);
-  // }
+  try {
+    imgInfo.hash = sjcl.hash.sha256.hash(data);
+  } catch (e) {
+    throw new Error(`getImgInfo operation failed: hash failed - ` + e.message);
+  }
 
   //canvas
   try {
-    
-    let result = await new Promise((resolve, reject) => {
-
-    var img = new Canvas.Image(); // Create a new Image
-    img.onload = () => { 
-      const canvas = Canvas.createCanvas(img.width, img.height);
-      const ctx = canvas.getContext('2d')
-
-      // console.log("@img: ", img.width, ' x ', img.height);
-      // console.log("@img: ", img.naturalWidth, ' x ', img.naturalHeight);
-      // console.log("@img: ", img);
-
-      imgInfo.width = img.width;
-      imgInfo.height = img.height;
-
-      //console.log("@ data.l-2: ", data.length);
-      imgInfo.size = data.length;
-      resolve();
-
-    }
-    img.onerror = err => { throw err }
-    img.src = file;
-
-  });
-
-
-
+    await new Promise((resolve, reject) => {
+      var img = new Canvas.Image(); // Create a new Image
+      img.onload = () => { 
+        imgInfo.width = img.width;
+        imgInfo.height = img.height;
+        imgInfo.dimensions = `width: ${img.width} pixels, height: ${img.height} pixels`
+        resolve();
+      }
+      img.onerror = err => { throw err }
+      img.src = file;
+    });
   } catch (e) {
-    throw new Error(`getImgInfo operation failed: img canvas - on file: ${_file} - ` + e.message);
+    throw new Error(`getImgInfo operation failed: loading image fails - on image file: ${_file} - ` + e.message);
   }
 
   return imgInfo;
+}
+
+export function getCsvString(str, sep) {
+  //internal
+  check(str, 'mustExists', 'string');
+  check(sep, 'ifExists', 'string');
+
+  let _sep = sep ? sep : ',';
+
+  let i = str.indexOf(_sep);
+  if(i !== -1) return '"' + str.replace(/[""]/g, '\\$&') + '"';
+  else return str;
+}
+
+export function isValidAttachmentMap(attachmentMap) {
+  //internal
+  check(attachmentMap, 'mustExists', 'object');
+
+  return (true
+    && confirm(attachmentMap, 'exists') && isOfType(attachmentMap, 'object')
+    && confirm(attachmentMap.imageName, 'exists') && isOfType(attachmentMap.imageName, 'string')
+    && confirm(attachmentMap.originalName, 'exists') && isOfType(attachmentMap.originalName, 'string')
+    && confirm(attachmentMap.attachmentId, 'defined') && isOfType(attachmentMap.attachmentId, 'number')
+    && confirm(attachmentMap.saveTimestamp, 'exists') && isOfType(attachmentMap.saveTimestamp, 'string')
+    && confirm(attachmentMap.imgInfo, 'exists') && isOfType(attachmentMap.imgInfo, 'object')
+    && confirm(attachmentMap.imgInfo.assetUid, 'exists') && isOfType(attachmentMap.imgInfo.assetUid, 'string')
+    && confirm(attachmentMap.imgInfo.assetName, 'exists') && isOfType(attachmentMap.imgInfo.assetName, 'string')
+    && confirm(attachmentMap.imgInfo.recordId, 'defined') && isOfType(attachmentMap.imgInfo.recordId, 'number')
+    && confirm(attachmentMap.imgInfo.name, 'exists') && isOfType(attachmentMap.imgInfo.name, 'string')
+    && confirm(attachmentMap.imgInfo.size, 'defined') && isOfType(attachmentMap.imgInfo.size, 'number')
+    && confirm(attachmentMap.imgInfo.sizeMB, 'exists') && isOfType(attachmentMap.imgInfo.sizeMB, 'string')
+    && confirm(attachmentMap.imgInfo.type, 'exists') && isOfType(attachmentMap.imgInfo.type, 'string')
+    && confirm(attachmentMap.imgInfo.dimensions, 'exists') && isOfType(attachmentMap.imgInfo.dimensions, 'string')
+    && confirm(attachmentMap.imgInfo.width, 'defined') && isOfType(attachmentMap.imgInfo.width, 'number')
+    && confirm(attachmentMap.imgInfo.height, 'defined') && isOfType(attachmentMap.imgInfo.height, 'number')
+    && confirm(attachmentMap.imgInfo.hash, 'exists') && isOfType(attachmentMap.imgInfo.hash, 'array'));
+}
+
+export function log(logFile, data, options) {
+  //internal
+  check(logFile, 'mustExists', 'string');
+  check(data, 'ifExists', 'string');
+  check(options, 'ifExists', 'object');
+
+  let _data = data ? data : '';
+
+  //options
+  let withTimestamp = (options&&options.withTimestamp) ? options.withTimestamp : false;
+  let noTimestamp = (options&&options.noTimestamp) ? options.noTimestamp : false;
+  let noNewLine = (options&&options.noNewLine) ? options.noNewLine : false;
+  let noPadding = (options&&options.noPadding) ? options.noPadding : false;
+  let logOnly = (options&&options.logOnly) ? options.logOnly : false;
+  let onNewLine = (options&&options.onNewLine) ? options.onNewLine : false;
+
+  //prepare output
+  let newLine = (onNewLine) ? '\n' : '';
+  let padding = (noPadding) ? '' : '  ';
+  let logfilePadding = (!noTimestamp) ? `${padding}${getCurrentTimestamp({style: 'log'})}:  ` : padding;
+  let logfileOutput = (noNewLine) ? `${newLine}${logfilePadding}${_data}` : `${newLine}${logfilePadding}${_data}\n`;
+
+  let consolePadding = (withTimestamp) ? logfilePadding : padding;
+  let consoleOutput = (noNewLine) ? `${newLine}${consolePadding}${_data}` : `${newLine}${consolePadding}${_data}\n`;
+  
+  //log to console
+  if(!logOnly) process.stdout.write(consoleOutput);
+
+  //log to file
+  appendFile(logFile, logfileOutput.replace(/\u001b\[.*?m/g, ''), {async:false});
 }

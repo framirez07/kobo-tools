@@ -1,5 +1,13 @@
 /**
- * check  Do checks to arguments.
+ * checks.js
+ * 
+ * Helper module that provides functions to check
+ * conditions on arguments.
+ */
+
+/**
+ * check  checks arguments and throw error if conditions
+ * are not met.
  * @param {any} arg argument to check.
  * @param {string} condition check condition.
  * @param {string} expectedType expected type of @arg.
