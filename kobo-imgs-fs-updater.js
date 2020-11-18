@@ -590,7 +590,8 @@ async function step4(input) {
          * 
          *  - none
          *    if @value exists, but there isn't attachment for it, the process
-         *    will report this case as a warning, but no action will be done.
+         *    will report this case as a warning, and, if the image exists, the
+         *    cleaning process will moved it to 'images_deleted' dir.
          */
         let attachment = null;
         let action = null;
@@ -893,7 +894,10 @@ async function step5(input) {
              * 
              *  - Exists?
              *      - yes: is up to date?
-             *              - yes:  up to date, no need download.
+             *              - yes:  up to date.
+             *                      - has valid hash?
+             *                          - yes: ok, no need download.
+             *                          - no: download.
              *              - no:   download.
              *      - no: download
              * 
@@ -907,10 +911,35 @@ async function step5(input) {
              * be of the following form:
              * 
              * {
-             *    imageName: "imageName.jpg"  //as is stored in output/images dir.
-             *    attachmentId: id            //id of the corresponding attachment.
-             *    saveTimestamp           //timestamp of the download event.
-             * }
+             *    "imageName":"1721_1579374170278.jpg",
+             *    "originalName":"1579374170278.jpg",
+             *    "attachmentId":2395,
+             *    "saveTimestamp":"2020-11-17-19-41-36",
+             *    "imgInfo":{
+             *    "hash":[-240650581,1759009758,-738380866,-1252016960,-1117734626,-2098850447,-1669759583,1939428331],
+             *    "width":2976,
+             *    "height":3968,
+             *    "dimensions":"width: 2976 pixels, height: 3968 pixels",
+             *    "assetUid":"aeUTa3g2VzbPP5SGoTx8Rp",
+             *    "assetName":"GEF_colectas_RG016",
+             *    "recordId":1721,
+             *    "name":"1721_1579374170278.jpg",
+             *    "type":"image/jpeg",
+             *    "size":4132284,
+             *    "sizeMB":"4.13MB"
+             *    }
+             *  }
+             * 
+             * If there is no attachment map for an existing image, it will be
+             * downloaded again.
+             * 
+             * Up to date check:
+             *    - Checks if attachment id in the map is equal to the current
+             *      attachment id: if equals image is up to date.
+             * 
+             * Integrity check:
+             *    - Checks if the hash in the map is equal to the hash of the
+             *      image currently stored: if equals the image has integrity.
              */
             //attachment download url
             let e_attachment_download_url = e_value.attachment.download_url;
