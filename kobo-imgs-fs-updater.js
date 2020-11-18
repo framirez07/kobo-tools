@@ -694,7 +694,7 @@ async function step5(input) {
   Utils.log(_configs.runLogPath, colors.brightCyan('update images'), {noTimestamp:true, noPadding:true});
 
   //step log path
-  let step_log_path = join(_configs.stepsPath, `4_update_images`);
+  let step_log_path = join(_configs.stepsPath, `5_update_images`);
   Utils.makeDirPath(step_log_path);
 
   //input
