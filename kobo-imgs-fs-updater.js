@@ -62,10 +62,18 @@ try {
  */
 async function start() {
   let results = {};
-  let steps = [step1, step2, step3, step4, step5];
+
+  /**
+   * Check mode:
+   *   - if mode 'filters': getAssetsList does not apply.
+   *   - if mode 'token': getAssetsList applies.
+   */
+  let steps = [];
+  if(_configs.mode === 'filters') steps = [getImageFields, getAssetsSubmissions, buildActionMap, updateImages];
+  else if(_configs.mode === 'token') steps = [getAssetsList, getImageFields, getAssetsSubmissions, buildActionMap, updateImages];
 
   //msg
-  Utils.log(_configs.runLogPath, `Starting to run [${steps.length}] steps\n`, {withTimestamp:true});
+  Utils.log(_configs.runLogPath, `Starting to run [${steps.length}] steps (mode: ${_configs.mode})\n`, {withTimestamp:true});
 
   //run steps
   for(let i=0; i<steps.length; i++) { await run( steps[i], i+1, steps.length, results ); }
@@ -84,19 +92,19 @@ async function run( step, stepId, totalSteps, results ) {
   check(results, 'mustExists', 'object');
 
   //log
-  Utils.log(_configs.runLogPath, `${titleColor(stepId)}/${titleColor(totalSteps)} - `, {noNewLine:true});
+  Utils.log(_configs.runLogPath, `step ${titleColor(stepId)} of ${titleColor(totalSteps)} - `, {noNewLine:true});
 
   let _step = `step${stepId}`;
   let _prevStep = `step${stepId-1}`;
   try {
-    results[_step] = await step(results[_prevStep]);
+    results[_step] = await step(stepId, results[_prevStep]);
     //internal
     check(results[_step], 'mustExists', 'array');
 
     //check
     if(results[_step].length === 0) {
       //log
-      Utils.log(_configs.runLogPath, `process finished at ${stepstepId} of ${totalSteps}`, {withTimestamp:true});
+      Utils.log(_configs.runLogPath, `process finished at ${stepId} of ${totalSteps}`, {withTimestamp:true});
       Utils.log(_configs.runLogPath, colors.yellow('done'));
       Utils.log(_configs.runLogPath, `-----------------\n`);
       process.exit(1);
@@ -113,14 +121,18 @@ async function run( step, stepId, totalSteps, results ) {
 }
 
 /**
- * step1  get assets list.
+ * getAssetsList  get assets list.
+ * @param {number} stepId step's id. 
  */
-async function step1() {
+async function getAssetsList(stepId) {
+  //internal
+  check(stepId, 'defined', 'number');
+
   //log
   Utils.log(_configs.runLogPath, colors.brightCyan('get assets'), {noTimestamp:true, noPadding:true});
  
   //step log path
-  let step_log_path = join(_configs.stepsPath, `1_get_assets`);
+  let step_log_path = join(_configs.stepsPath, `${stepId}_get_assets`);
   Utils.makeDirPath(step_log_path);
 
   /**
@@ -181,37 +193,52 @@ async function step1() {
   Utils.log(_configs.runLogPath, separatorColor(`-----------------\n`));
 
   //write result
-  let step_log_file = join(step_log_path,`1-result.json`);
+  let step_log_file = join(step_log_path,`${stepId}-result.json`);
   Utils.writeFile(step_log_file, JSON.stringify(result, null, 2), {async:false});
 
   //overall status
   let status = result.status;
 
   if(status) return result.results;
-  else throw new Error('step done with failed operations');
+  else throw new Error('step completed with failed operations');
 }
 
 /**
- * step2  get assets image-fields.
+ * getImageFields  get assets image-fields.
+ * @param {number} stepId step's id.
+ * @param {array} input input array. 
  */
-async function step2(input) {
+async function getImageFields(stepId, input) {
   //internal
-  check(input, 'mustExists', 'array');
+  check(stepId, 'defined', 'number');
+  check(input, 'ifExists', 'array');
 
   //log
   Utils.log(_configs.runLogPath, colors.brightCyan('get image fields'), {noTimestamp:true, noPadding:true});
   
   //step log path
-  let step_log_path = join(_configs.stepsPath, `2_get_image_fields`);
+  let step_log_path = join(_configs.stepsPath, `${stepId}_get_image_fields`);
   Utils.makeDirPath(step_log_path);    
   
+  /**
+   * Check mode & set input.
+   * 
+   * The required format on input is:
+   * "results": [
+   *    {
+   *      "uid": "asset id"
+   *    }
+   *  ]
+   */
   //input
-  let assets = input;
+  let assets = [];
+  if(_configs.mode === 'filters') assets = _configs.filters.map(e => ({uid: e.assetId}));
+  else if(_configs.mode === 'token') assets = input;
 
   /**
    * Set required keys
    */
-  let r_asset_keys = ["uid"];
+  let r_asset_keys = ["uid", "name", "deployment__submission_count"];
 
   /**
    * Configure filters
@@ -247,15 +274,20 @@ async function step2(input) {
     //internal
     check(asset, 'mustExists', 'object');
     check(asset.uid, 'mustExists', 'string');
-    check(asset.deployment__submission_count, 'defined', 'number');
 
-    //check
-    if(asset.deployment__submission_count === 0) {
-      //log
-      Utils.log(_configs.runLogPath, `[${indexIndicatorColor(i+1)}/${indexIndicatorColor(assets.length)}]${assetIdColor(asset.uid)}: has no submissions - ${colors.yellow('(skipped)')}`);
-      //count
-      assetsFiltered++;
-      continue;
+    //check: 
+    if(_configs.mode === 'token') {
+      //internal
+      check(asset.deployment__submission_count, 'defined', 'number');
+
+      //check
+      if(asset.deployment__submission_count === 0) {
+        //log
+        Utils.log(_configs.runLogPath, `[${indexIndicatorColor(i+1)}/${indexIndicatorColor(assets.length)}]${assetIdColor(asset.uid)}: has no submissions - ${colors.yellow('(skipped)')}`);
+        //count
+        assetsFiltered++;
+        continue;
+      }
     }
 
     //get
@@ -294,25 +326,28 @@ async function step2(input) {
   Utils.log(_configs.runLogPath, separatorColor(`-----------------\n`));
 
   //write result
-  let step_log_file = join(step_log_path,`2-result.json`);
+  let step_log_file = join(step_log_path,`${stepId}-result.json`);
   Utils.writeFile(step_log_file, JSON.stringify(results, null, 2), {async:false});
   
   if(status) return results;
-  else throw new Error('step done with failed operations');
+  else throw new Error('step completed with failed operations');
 }
 
 /**
- * step3  get assets submissions.
+ * getAssetsSubmissions  get assets submissions.
+ * @param {number} stepId step's id.
+ * @param {array} input input array.
  */
-async function step3(input) {
+async function getAssetsSubmissions(stepId, input) {
   //internal
+  check(stepId, 'defined', 'number');
   check(input, 'mustExists', 'array');
 
   //log
   Utils.log(_configs.runLogPath, colors.brightCyan('get submissions'), {noTimestamp:true, noPadding:true});
   
   //step log path
-  let step_log_path = join(_configs.stepsPath, `3_get_submissions`);
+  let step_log_path = join(_configs.stepsPath, `${stepId}_get_submissions`);
   Utils.makeDirPath(step_log_path);
   
   //input
@@ -337,9 +372,19 @@ async function step3(input) {
     //internal
     check(asset, 'mustExists', 'object');
     check(asset.uid, 'mustExists', 'string');
+    check(asset.deployment__submission_count, 'defined', 'number');
     check(asset.imgs, 'mustExists', 'array');
 
-    //check
+    //check: no submissions
+    if(asset.deployment__submission_count === 0) {
+      //log
+      Utils.log(_configs.runLogPath, `[${indexIndicatorColor(i+1)}/${indexIndicatorColor(assets.length)}]${assetIdColor(asset.uid)}: has no submissions - ${colors.yellow('(skipped)')}`);
+      //count
+      assetsFiltered++;
+      continue;
+    }
+
+    //check: no image-fields
     if(asset.imgs.length === 0) {
       //log
       Utils.log(_configs.runLogPath, `[${indexIndicatorColor(i+1)}/${indexIndicatorColor(assets.length)}]${assetIdColor(asset.uid)}: has no image fields - ${colors.yellow('(skipped)')}`);
@@ -448,25 +493,28 @@ async function step3(input) {
   Utils.log(_configs.runLogPath, separatorColor(`-----------------\n`));
 
   //write result
-  let step_log_file = join(step_log_path,`3-result.json`);
+  let step_log_file = join(step_log_path,`${stepId}-result.json`);
   Utils.writeFile(step_log_file, JSON.stringify(results, null, 2), {async:false});
   
   if(status) return results;
-  else throw new Error('step done with failed operations');
+  else throw new Error('step completed with failed operations');
 }
 
 /**
- * step4()  build action map
+ * buildActionMap()  build action map
+ * @param {number} stepId step's id.
+ * @param {array} input input array.
  */
-async function step4(input) {
+async function buildActionMap(stepId, input) {
   //internal
+  check(stepId, 'defined', 'number');
   check(input, 'mustExists', 'array');
 
   //log
   Utils.log(_configs.runLogPath, colors.brightCyan('build action map'), {noTimestamp:true, noPadding:true});
   
   //step log path
-  let step_log_path = join(_configs.stepsPath, `4_build_action_map`);
+  let step_log_path = join(_configs.stepsPath, `${stepId}_build_action_map`);
   Utils.makeDirPath(step_log_path);
   
   //input
@@ -677,25 +725,28 @@ async function step4(input) {
   Utils.log(_configs.runLogPath, separatorColor(`-----------------\n`));
 
   //write result
-  let step_log_file = join(step_log_path,`4-result.json`);
+  let step_log_file = join(step_log_path,`${stepId}-result.json`);
   Utils.writeFile(step_log_file, JSON.stringify(results, null, 2), {async:false});
 
   if(status) return results;
-  else throw new Error('step done with failed operations');
+  else throw new Error('step completed with failed operations');
 }
 
 /**
- * step5  update images
+ * updateImages  update images
+ * @param {number} stepId step's id.
+ * @param {array} input input array.
  */
-async function step5(input) {
+async function updateImages(stepId, input) {
   //internal
+  check(stepId, 'defined', 'number');
   check(input, 'mustExists', 'array');
 
   //log
   Utils.log(_configs.runLogPath, colors.brightCyan('update images'), {noTimestamp:true, noPadding:true});
 
   //step log path
-  let step_log_path = join(_configs.stepsPath, `5_update_images`);
+  let step_log_path = join(_configs.stepsPath, `${stepId}_update_images`);
   Utils.makeDirPath(step_log_path);
 
   //input
@@ -1303,7 +1354,7 @@ async function step5(input) {
     results = [...results, {...asset, mapRunnerReport: {mapsRunned: images_update_run, mapRunnerCounters }, imageCleanerReport}];
 
     //write result
-    let step_log_file = join(step_log_path,`${asset.uid}-5-result.json`);
+    let step_log_file = join(step_log_path,`${asset.uid}-${stepId}-result.json`);
     Utils.writeFile(step_log_file, JSON.stringify(results, null, 2), {async:false});
   }//end: for each asset
 
@@ -1326,7 +1377,8 @@ async function step5(input) {
   Utils.printReportCounters([{counters: countersC}], _configs.runLogPath);
   Utils.log(_configs.runLogPath, separatorColor(`-----------------\n`));
 
-  return results;
+  if(status) return results;
+  else throw new Error('step completed with failed operations');
 }
 
 

@@ -209,6 +209,19 @@ export function getConfigs(program, mainDir) {
 
   //filters
   configs.filters = runConfigs.filters;
+
+  /**
+   * Check: 
+   * - either filters or token should be specified.
+   * - only one of filters or token should be specified.
+   */
+  if(!configs.filters.length && !configs.token) throw new Error(`either 'filters' or 'token' should be properly configured`);
+  if(configs.filters.length && configs.token) throw new Error(`only one of 'filters' or 'token' should be configured`);
+
+  //set mode
+  if(configs.filters.length) configs.mode = 'filters';
+  else configs.mode = 'token';
+
   return configs;
 }
 
@@ -261,7 +274,7 @@ export function setupOutputDir(configs) {
       if(_dir === '') {
         let _second_path = resolve(join(configs.mainDir, configs.outputDir));
         if(Utils.dirExists(_second_path)) _output_dir = _second_path;
-        else _lookedPaths.push(_second_path);
+        else if(!_lookedPaths.includes(_second_path)) _lookedPaths.push(_second_path);
       }
     }
 
@@ -396,9 +409,9 @@ function getSubmissionIdsFromCsv(filter, mainDir) {
       let _third_path = resolve(join(mainDir, filter.submissionIdsCsv));
       if(Utils.fileExists(_second_path)) _file = _second_path;
       else {
-        _lookedPaths.push(_second_path);
+        if(!_lookedPaths.includes(_second_path)) _lookedPaths.push(_second_path);
         if(Utils.fileExists(_third_path)) _file = _third_path;
-        else _lookedPaths.push(_third_path);
+        else if(!_lookedPaths.includes(_third_path)) _lookedPaths.push(_third_path);
       }
     }
   }

@@ -15,18 +15,25 @@ kobo-img-fs-updater script **gets an accurate set of images attached to KoBoTool
 ## Installation
 * Get a copy of this project, for example:
 ```sh
-# Clone the project from GitHub
+# Clone this project from GitHub
 git clone <git_project_url>
 ```
+* As this proyect uses [node-canvas](https://github.com/Automattic/node-canvas) to get images information, you need to install some dependencies first. Below is the command you need to install dependencies on Ubuntu system, please refer to the section [Compiling](https://github.com/Automattic/node-canvas#compiling) of [node-canvas](https://github.com/Automattic/node-canvas) GitHub homepage to see details about other systems.
 
-* To install the project you can use `npm install`
+OS | Command
+----- | -----
+Ubuntu | `sudo apt-get install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev`
+
+* To install this project:
+```
+npm install
+```
 
 ## Basic configuration
 You can provide a `run-configs.json` file with basic configuration parameters.
 
 ```json
 {
-  "token": "d3585b44a3ada6416be99818d4b4f4c0f2c7077f", 
   "apiServerUrl": "https://kobo.conabio.gob.mx/",
   "mediaServerUrl": "https://kcat.conabio.gob.mx/",
   "outputDir": "output",
@@ -43,18 +50,27 @@ You can provide a `run-configs.json` file with basic configuration parameters.
 ```
 **Note:** Put the configuration file in the predefined directory `run-configs` so you can specify only the name (without path) when you run the script.
 
-* outputDir: must exists.
+The following are required configurations:
+* `apiServerUrl`: KoBo API server url.
+* `mediaServerUrl`: KoBo media server url.
+* `outputDir`: directory where images and other output will be saved (must exists).
+* `filters.assetId`: asset (form) id.
+
+The following are optional configurations:
+* `deleteImages`: If `true`, image will be deleted instead of moved to `'images_deleted'` directory (default: `false`).
+* `submissionIdsCsv`: csv file with an id column, where submissions ids should be. If not provided, all submissions will be included in the update process.
+* `submissionIdsCsvIdColumnName`: id column (default: `"id"`).
+* * `submissionIdsCsvSeparator`: csv separator character (default: `","`).
 
 ## Usage
 Execute the following command to start the image-update process over the configured assets.
 ```sh
-# you can run with node
+# you can run it with node
 node ./kobo-imgs-fs-updater.js -f run-configs.json
 
 # or with npm
 npm start -- -f run-configs.json
 ```
-
 
 ## Output results
 At the end of the process, you will have the following output tree:
@@ -93,11 +109,10 @@ aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1723,1723_1579374347354.jpg,5909566,5.
 aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1723,1723_1579374392261.jpg,5699688,5.7MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[-359204658,-472504106,676645795,1864634546,1216755732,-802929860,1129053626,1445613292]"
 aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1723,1723_1579374430920.jpg,7431575,7.43MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[355624210,423644185,-1299040392,1733903363,-747128272,157906734,-94938422,-324057370]"
 ```
-The `.attachments_map` hidden directory contains information that allows the script to check for integrity and validity, of current images, in following runs of the script, over the same `output` directory. And the `runs` directory, contains a timestamped directory per each run of the script, with logs and track files corresponding to the task made by the script.
-
+The `.attachments_map` is a hidden directory and contains information that allows the script to check for integrity and validity of the current images existing in the `output/images` directory, and is used when the script is ran over an existing `output` directory. The `runs` directory, contains a timestamped directory per each run of the script, with logs and track files corresponding to the task made by the script.
 
 ## Action maps
-For each image-field of each submitted record, the script builds an map or object as the following:
+For each image-field of each submitted record, the script builds a map or object that has the following attributes:
 ```json
     [
       {
@@ -166,7 +181,7 @@ For each image-field of each submitted record, the script builds an map or objec
     ]
 
 ```
-In this case, each of the keys `ImagenEjemplar1`, ..., `ImagenEjemplar6` are image-fields and for each of them there is an action to be executed. The possible actions are:
+In this case, each of the keys `ImagenEjemplar1`, ..., `ImagenEjemplar6` are image-fields and for each of them there is an `action` to be executed. The possible actions are:
 
 action      | description
 ---         | ---
@@ -174,7 +189,7 @@ action      | description
 `delete`    | The image will be *cleaned* if exists.
 `none`      | The image will be *moved* to `images_deleted` dir if exists.
 
-Each action is determined as following:
+Each `action` is determined as following:
 ```
 /**
  * Build action map
@@ -254,4 +269,5 @@ When an image exists and is marked as `keep`, the script will do the following c
  *      image currently stored: if equals the image has integrity.
  */
 ```
-
+## Cleanup stage
+When the task that runs the action map start running, a sub-task is trigger asynchronously to check if there exists images in the `output/images` directory that are neither in the `keep` set nor in the `delete` set, and cleans all this images, either deleting them (if `deleteImages` is set to `true`) or moving them to `images_deleted` directory. Also all the images in the `none` set, if some exists, are cleaned by moving them to `images_deleted` directory.

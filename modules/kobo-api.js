@@ -235,9 +235,10 @@ export async function getAssetInfo(uid, options) {
   let response = null;
   let done=false;
   let retries = 1;
+  let notFound = false;
 
   //request cycle
-  while(!done && retries<=options.maxRequestRetries && !response) {
+  while(!done && retries<=options.maxRequestRetries && !response && !notFound) {
     //log
     Utils.log(options.runLogPath, next, {noNewLine:true, logOnly:true});
 
@@ -279,10 +280,19 @@ export async function getAssetInfo(uid, options) {
       //rejected
       (error) => { throw error })
     .catch((error) => {
-      //log
-      Utils.log(options.runLogPath, colors.grey(error.message));
-      Utils.log(options.runLogPath, `${colors.grey('resquest failed on try:')} ${colors.yellow.dim(retries)}${colors.white.dim("/")}${colors.yellow.dim(options.maxRequestRetries)}`);
-      retries++;
+      //check 404
+      if(error.response && error.response.status === 404) {
+        //update progress: 0%
+        bar.update(0);
+        //log
+        Utils.log(options.runLogPath, `error ${colors.red(error.response.status)} - ${colors.red(error.response.statusText)}, please make sure that this asset is publicly shared`);
+        notFound = true;
+      } else {
+        //log
+        Utils.log(options.runLogPath, colors.grey(error.message));
+        Utils.log(options.runLogPath, `${colors.grey('resquest failed on try:')} ${colors.yellow.dim(retries)}${colors.white.dim("/")}${colors.yellow.dim(options.maxRequestRetries)}`);
+        retries++;
+      }
     });
     //clear
     clearTimeout(timeout);
@@ -291,6 +301,7 @@ export async function getAssetInfo(uid, options) {
   }//end: while: request cycle
   //check: max retries reached
   if(!response) {
+    let detail = (notFound) ? `error 404 - NOT FOUND, please make sure that this asset is publicly shared` : `max retries of ${options.maxRequestRetries} reached at endpoint: ${next}`;
     /**
      * Report
      */
@@ -301,7 +312,7 @@ export async function getAssetInfo(uid, options) {
     let o = {
       apiOp: 'getAssetInfo',
       status: 'failed',
-      detail: `max retries of ${options.maxRequestRetries} reached at endpoint: ${next}`,
+      detail,
       counters: {
         assetsCount,
         assetsFetched,
