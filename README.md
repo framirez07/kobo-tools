@@ -423,8 +423,8 @@ output/runs/
 
 ```
 
-step | descriptions | filters mode | token mode  
---- | --- | --- | ---
+directory | descriptions
+--- | ---
 `images_deleted` | Contains cleaned images if the `deleteImage` option if `false`.
 `logs` | Contains the `run.log` file, with console log outputs from the overall process.
 `run-configs.json` | Contains the run configurations with which the run was made.
