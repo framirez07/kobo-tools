@@ -40,7 +40,7 @@ You can provide a `run-configs.json` file with basic configuration parameters.
   "deleteImages": false,
   "filters": [
     {
-      "assetId": "aeUTa3g2VzbPP5SGoTx8Rp",
+      "assetId": "<assetUid>",
       "submissionIdsCsv": "colectas.csv",
       "submissionIdsCsvIdColumnName": "id",
       "submissionIdsCsvSeparator": ","
@@ -48,19 +48,19 @@ You can provide a `run-configs.json` file with basic configuration parameters.
   ]
 }
 ```
-**Note:** Put the configuration file in the predefined directory `run-configs` so you can specify only the name (without path) when you run the script.
+**Note:** If you put the configuration file in the predefined directory `run-configs`, then you can specify only the name (without path) when you run the script.
 
 The following are required configurations:
 * `apiServerUrl`: KoBo API server url.
 * `mediaServerUrl`: KoBo media server url.
-* `outputDir`: directory where images and other output will be saved (must exists).
 * `filters.assetId`: asset (form) id.
 
 The following are optional configurations:
-* `deleteImages`: If `true`, image will be deleted instead of moved to `'images_deleted'` directory (default: `false`).
+* `outputDir`: directory where images and other output will be saved. If you configure this option the directory should exists. (default: `"output"`).
+* `deleteImages`: If `true`, images will be deleted instead of moved to `'images_deleted'` directory (default: `false`).
 * `submissionIdsCsv`: csv file with an id column, where submissions ids should be. If not provided, all submissions will be included in the update process.
-* `submissionIdsCsvIdColumnName`: id column (default: `"id"`).
-* * `submissionIdsCsvSeparator`: csv separator character (default: `","`).
+  * `submissionIdsCsvIdColumnName`: id column (default: `"id"`).
+  * `submissionIdsCsvSeparator`: csv separator character (default: `","`).
 
 ## Usage
 Execute the following command to start the image-update process over the configured assets.
@@ -77,12 +77,12 @@ At the end of the process, you will have the following output tree:
 ```console
 output/
 ├── .attachments_map
-│   └── aeUTa3g2VzbPP5SGoTx8Rp
+│   └── <assetUid>
 │       ├── 1721
 │       └── 1723
 ├── images
-│   └── aeUTa3g2VzbPP5SGoTx8Rp
-│       └── GEF_colectas_RG016
+│   └── <assetUid>
+│       └── <assetName>
 │           ├── 1721_1579374170278.jpg
 │           ├── 1721_1579374245054.jpg
 │           ├── 1721_1579374270078.jpg
@@ -100,14 +100,14 @@ The `images` directory will contain the downloaded images, corresponding to the 
 
 ```csv
 assetUid,assetName,recordId,name,size,sizeMB,type,dimensions,width,height,hash
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1721,1721_1579374170278.jpg,4132284,4.13MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-240650581,1759009758,-738380866,-1252016960,-1117734626,-2098850447,-1669759583,1939428331]"
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1721,1721_1579374245054.jpg,7658307,7.66MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-2107362895,1501112355,-1378498611,-1090845309,522225366,-1172291672,-1116237041,-360917577]"
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1721,1721_1579374270078.jpg,4160413,4.16MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-1716067697,45361568,-1002483612,-1341406519,-58516787,-720829260,1974367655,-216617698]"
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1721,1721_1579374287914.jpg,7452144,7.45MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-1089216671,-186613993,-1101340157,2106466214,64105590,123906609,-1979905858,2102977033]"
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1723,1723_1579374308256.jpg,6177655,6.18MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[1789314038,1095443034,-190271744,1038995168,-221165226,-1923081117,1783458859,539587516]"
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1723,1723_1579374347354.jpg,5909566,5.91MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[-2121826268,-2114841587,1269747967,-805584337,614506380,-1644648640,-1905631139,1750768959]"
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1723,1723_1579374392261.jpg,5699688,5.7MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[-359204658,-472504106,676645795,1864634546,1216755732,-802929860,1129053626,1445613292]"
-aeUTa3g2VzbPP5SGoTx8Rp,GEF_colectas_RG016,1723,1723_1579374430920.jpg,7431575,7.43MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[355624210,423644185,-1299040392,1733903363,-747128272,157906734,-94938422,-324057370]"
+<assetUid>,GEF_colectas_RG016,1721,1721_1579374170278.jpg,4132284,4.13MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-240650581,1759009758,-738380866,-1252016960,-1117734626,-2098850447,-1669759583,1939428331]"
+<assetUid>,GEF_colectas_RG016,1721,1721_1579374245054.jpg,7658307,7.66MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-2107362895,1501112355,-1378498611,-1090845309,522225366,-1172291672,-1116237041,-360917577]"
+<assetUid>,GEF_colectas_RG016,1721,1721_1579374270078.jpg,4160413,4.16MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-1716067697,45361568,-1002483612,-1341406519,-58516787,-720829260,1974367655,-216617698]"
+<assetUid>,GEF_colectas_RG016,1721,1721_1579374287914.jpg,7452144,7.45MB,image/jpeg,"width: 2976 pixels, height: 3968 pixels",2976,3968, "[-1089216671,-186613993,-1101340157,2106466214,64105590,123906609,-1979905858,2102977033]"
+<assetUid>,GEF_colectas_RG016,1723,1723_1579374308256.jpg,6177655,6.18MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[1789314038,1095443034,-190271744,1038995168,-221165226,-1923081117,1783458859,539587516]"
+<assetUid>,GEF_colectas_RG016,1723,1723_1579374347354.jpg,5909566,5.91MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[-2121826268,-2114841587,1269747967,-805584337,614506380,-1644648640,-1905631139,1750768959]"
+<assetUid>,GEF_colectas_RG016,1723,1723_1579374392261.jpg,5699688,5.7MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[-359204658,-472504106,676645795,1864634546,1216755732,-802929860,1129053626,1445613292]"
+<assetUid>,GEF_colectas_RG016,1723,1723_1579374430920.jpg,7431575,7.43MB,image/jpeg,"width: 3120 pixels, height: 4160 pixels",3120,4160, "[355624210,423644185,-1299040392,1733903363,-747128272,157906734,-94938422,-324057370]"
 ```
 The `.attachments_map` is a hidden directory and contains information that allows the script to check for integrity and validity of the current images existing in the `output/images` directory, and is used when the script is ran over an existing `output` directory. The `runs` directory, contains a timestamped directory per each run of the script, with logs and track files corresponding to the task made by the script.
 
@@ -121,8 +121,8 @@ For each image-field of each submitted record, the script builds a map or object
           "value": "1579374170278.jpg",
           "attachment": {
             "mimetype": "image/jpeg",
-            "download_url": "/media/ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374170278.jpg",
-            "filename": "ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374170278.jpg",
+            "download_url": "<download url>",
+            "filename": "<filename>",
             "instance": 1721,
             "id": 2395,
             "xform": 177
@@ -134,8 +134,8 @@ For each image-field of each submitted record, the script builds a map or object
           "value": "1579374245054.jpg",
           "attachment": {
             "mimetype": "image/jpeg",
-            "download_url": "/media/ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374245054.jpg",
-            "filename": "ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374245054.jpg",
+            "download_url": "<download url>",
+            "filename": "<filename>",
             "instance": 1721,
             "id": 2454,
             "xform": 177
@@ -147,8 +147,8 @@ For each image-field of each submitted record, the script builds a map or object
           "value": "1579374270078.jpg",
           "attachment": {
             "mimetype": "image/jpeg",
-            "download_url": "/media/ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374270078.jpg",
-            "filename": "ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374270078.jpg",
+            "download_url": "<download url>",
+            "filename": "<filename>",
             "instance": 1721,
             "id": 2455,
             "xform": 177
@@ -160,8 +160,8 @@ For each image-field of each submitted record, the script builds a map or object
           "value": "1579374287914.jpg",
           "attachment": {
             "mimetype": "image/jpeg",
-            "download_url": "/media/ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374287914.jpg",
-            "filename": "ooliver/attachments/342dd96b86de4ce390bdc5dbaa7c2960/2ae0c51e-72b0-4de9-9b98-d73abe4a2e43/1579374287914.jpg",
+            "download_url": "<download url>",
+            "filename": "<filename>",
             "instance": 1721,
             "id": 2458,
             "xform": 177
@@ -247,7 +247,7 @@ When an image exists and is marked as `keep`, the script will do the following c
  *    "width":2976,
  *    "height":3968,
  *    "dimensions":"width: 2976 pixels, height: 3968 pixels",
- *    "assetUid":"aeUTa3g2VzbPP5SGoTx8Rp",
+ *    "assetUid":"<asset uid>",
  *    "assetName":"GEF_colectas_RG016",
  *    "recordId":1721,
  *    "name":"1721_1579374170278.jpg",
@@ -271,3 +271,164 @@ When an image exists and is marked as `keep`, the script will do the following c
 ```
 ## Cleanup stage
 When the task that runs the action map start running, a sub-task is trigger asynchronously to check if there exists images in the `output/images` directory that are neither in the `keep` set nor in the `delete` set, and cleans all this images, either deleting them (if `deleteImages` is set to `true`) or moving them to `images_deleted` directory. Also all the images in the `none` set, if some exists, are cleaned by moving them to `images_deleted` directory.
+
+## Operations mode
+The script can run two operation modes: `filters` or `token`. In `filters` mode, the script will operates over the configurated assets and submissions specified in `filters` configuration. In `token` mode, the script will be run a discovery of the assets authorized by the token provided, and will operates over all submissions of these discovered assets; to enter `token` mode, you need to configurate the `token` parameter, for example:
+
+```json
+{
+  "token": "KoBo token"
+  "apiServerUrl": "https://kobo.conabio.gob.mx/",
+  "mediaServerUrl": "https://kcat.conabio.gob.mx/",
+  "outputDir": "output",
+  "deleteImages": false,
+}
+```
+You can configurate either `filters` or `token` but not both. Also, at least one of these arguments should be configurated.
+
+## Program options
+You can see all program options with the following command:
+
+```sh
+# with node
+node ./kobo-imgs-fs-updater.js -h
+
+# or with npm
+npm start -- -h
+
+```
+You will get the following output:
+```console
+Usage: kobo-imgs-fs-updater [options]
+
+KoBo image file-system updater.
+
+Options:
+  -f, --config-file <FILE>                       JSON file with run configs.
+  -s, --api-server-url <URL>                     URL of the KoBo API server.
+  -m, --media-server-url <URL>                   URL of the KoBo media server.
+  -o, --output-dir <DIR>                         Directory where the run results will be stored
+  -t, --token <TOKEN>                            KoBo authentication token.
+  -d, --delete-images                            Remove images instead of the default behavior of moving them to the images_deleted dir.
+  --max-request-retries <MAX_REQUEST_RETRIES>    Max request retries before cancel the process.
+  --max-download-retries <MAX_DOWNLOAD_RETRIES>  Max download retries before cancel the process.
+  --request-timeout <REQUEST_TIMEOUT>            Request timeout before trying again.
+  --connection-timeout <CONETION_TIMEOUT>        Connection timeout before trying again.
+  --download-timeout <DOWNLOAD_TIMEOUT>          Download timeout before trying again.
+  -h, --help                                     output usage information
+
+```
+
+## Configuration options
+Some configurations can be specified in several ways. The table below shows the different options. 
+
+program option | environment variable | run-configs JSON | globals.js  
+--- | --- | --- | ---
+`--api-server-url` | `KT_API_SERVER_URL` | `apiServerUrl` | `API_SERVER_URL`
+`--media-server-url` | `KT_MEDIA_SERVER_URL` | `mediaServerUrl` | `MEDIA_SERVER_URL`
+`--output-dir` | `KT_OUTPUT_DIR` | `outputDir` | `OUTPUT_DIR`
+`--token` | `KT_TOKEN` | `token` | `TOKEN`
+`--delete-images` | `KT_DELETE_IMAGES` | `deleteImages` | `DELETE_IMAGES`
+`--max-request-retries` | `KT_MAX_REQUEST_RETRIES` | `maxRequestRetries` | `MAX_REQUEST_RETRIES`
+`--max-download-retries` | `KT_MAX_DOWNLOAD_RETRIES` | `maxDownloadRetries` | `MAX_DOWNLOAD_RETRIES`
+`--request-timeout` | `KT_REQUEST_TIMEOUT` | `requestTimeout` | `REQUEST_TIMEOUT`
+`--connection-timeout` | `KT_CONNECTION_TIMEOUT` | `connectionTimeout` | `CONNECTION_TIMEOUT`
+`--download-timeout` | `KT_DOWNLOAD_TIMEOUT` | `downloadTimeout` | `DOWNLOAD_TIMEOUT`
+`--config-file` | `n/a` | `n/a` | `n/a`
+`n/a` | `n/a` | `filters.assetId` | `n/a`
+`n/a` | `n/a` | `filters.submissionIds` | `n/a`
+`n/a` | `n/a` | `filters.submissionIdsCsv` | `n/a`
+`n/a` | `n/a` | `filters.submissionIdsCsvIdColumnName` | `n/a`
+`n/a` | `n/a` | `filters.submissionIdsCsvSeparator` | `n/a`
+
+* The `submissionIds` allows you to configure an array with submissions ids. If `submissionIdsCsv` is also configured, the final set of submissions ids will be the union of both options.
+
+If some configuration is defined using several options, the following precedence will apply (from highest to lowest precedence):
+
+1. command line options.
+2. environment variables.
+3. run-configs json file.
+4. globals.js module.
+
+## Steps
+The program runs the following steps or tasks to get the results (in order of appearance).
+
+step | descriptions | filters mode | token mode  
+--- | --- | --- | ---
+`get assets` | Get a list of assets authorized to the token provided. | n/a | yes
+`get image fields` | Get the image fields of each asset. | yes | yes
+`get submissions` | Get submissions of each asset. | yes | yes
+`build action map` | Builds the action map for each submission. | yes | yes
+`update images` | Execute action map and clean stage. | yes | yes
+
+
+## 'runs' directory
+The `runs` directory, will contains a timestamped directory for each of the runs executed, each of one with logs and operations track files. An example of the `runs` directory structure is the following:
+
+```console
+output/runs/
+├── run_2020-11-19-00-05-20
+│   ├── images_deleted
+│   │   └── <assetId>
+│   │       └── <assetName>
+│   │           ├── 1726_1579380702914.jpg
+│   │           ├── 1726_1579380738564.jpg
+│   │           ├── 1726_1579380757848.jpg
+│   │           ├── 1726_1579380787936.jpg
+│   │           └── 1735_1579466268204.jpg
+│   ├── logs
+│   │   └── run.log
+│   ├── run-configs.json
+│   └── steps
+│       ├── 1_get_image_fields
+│       │   ├── 1-result.json
+│       │   ├── data
+│       │   │   └── <assetId>-asset-response-data.json
+│       │   └── filters
+│       │       └── <assetId>-asset-response-filters.json
+│       ├── 2_get_submissions
+│       │   ├── 2-result.json
+│       │   ├── data
+│       │   │   └── submission-response-data-<assetId>.json
+│       │   └── filters
+│       │       └── submission-response-filters-<assetId>.json
+│       ├── 3_build_action_map
+│       │   └── 3-result.json
+│       └── 4_update_images
+│           └── <assetId>-4-result.json
+└── run_2020-11-19-00-06-10
+    ├── images_deleted
+    │   └── <assetId>
+    │       └── <assetName>
+    ├── logs
+    │   └── run.log
+    ├── run-configs.json
+    └── steps
+        ├── 1_get_image_fields
+        │   ├── 1-result.json
+        │   ├── data
+        │   │   └── <assetId>-asset-response-data.json
+        │   └── filters
+        │       └── <assetId>-asset-response-filters.json
+        ├── 2_get_submissions
+        │   ├── 2-result.json
+        │   ├── data
+        │   │   └── submission-response-data-<assetId>.json
+        │   └── filters
+        │       └── submission-response-filters-<assetId>.json
+        ├── 3_build_action_map
+        │   └── 3-result.json
+        └── 4_update_images
+            └── <assetId>-4-result.json
+
+```
+
+step | descriptions | filters mode | token mode  
+--- | --- | --- | ---
+`images_deleted` | Contains cleaned images if the `deleteImage` option if `false`.
+`logs` | Contains the `run.log` file, with console log outputs from the overall process.
+`run-configs.json` | Contains the run configurations with which the run was made.
+`steps` | Contains the results of each step executed.
+`steps/data` | Raw results before apply filters.
+`steps/filters` | Filters applied to raw results.
+`#-result.json` | Final result of the step.

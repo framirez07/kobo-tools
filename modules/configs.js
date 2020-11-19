@@ -279,13 +279,13 @@ export function setupOutputDir(configs) {
     }
 
     //check
-    if(!_output_dir) throw new Error(`run dir not found: ${configs.outputDir} - in: \n${JSON.stringify(_lookedPaths, null, 2)}`);
+    if(!_output_dir) throw new Error(`output dir not found: ${configs.outputDir} - in: \n${JSON.stringify(_lookedPaths, null, 2)}`);
     else configs.outputPath = _output_dir;
   } else { //case: outputDir not specified
     /**
      * Check if default dir exists, and if not, create it.
      */
-    let _output_dir = resolve(join(configs.mainDir, 'runs'));
+    let _output_dir = resolve(join(configs.mainDir, 'output'));
     if(Utils.dirExists(_output_dir)) configs.outputPath = _output_dir;
     else configs.outputPath = Utils.makeDirPath(_output_dir);
   }
