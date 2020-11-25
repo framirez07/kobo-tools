@@ -818,7 +818,30 @@ async function updateImages(stepId, input) {
     //images/{assetId}/{assetName}/data/images_info.csv
     let e_images_info_file_path = Utils.toPath([e_img_data_dir_path, 'images_info.csv']);
     //write new file with headers
-    Utils.writeFile(e_images_info_file_path, 'assetUid,assetName,recordId,name,size,sizeMB,type,dimensions,width,height,hash');
+    let img_info_headers = ['assetUid', 'assetName', 'recordId', 'name', 'size', 'sizeMB', 'type', 'dimensions', 'width', 'height', 'hash'];
+    Utils.writeFile(e_images_info_file_path, img_info_headers.join(','));
+
+    /**
+     * Metadata file
+     */
+    //images/{assetId}/{assetName}/data/metadata_info.csv
+    let e_metadata_info_file_path = Utils.toPath([e_img_data_dir_path, 'metadata_info.csv']);
+    //get filter from configs
+    let _filter = _configs.filters.find(e => e.assetId === asset.uid);
+    //case: has metadata configs
+    let e_metadata_records = null;
+    if(_filter && _filter.metadata) {
+      //get records
+      e_metadata_records = Utils.getCsvRecordsFromFile(_filter["_mdCsvPath"], _filter["_mdCsvSeparator"]);
+      //prepare headers
+      let img_info_headers = ['size', 'sizeMB', 'type', 'dimensions', 'width', 'height'];
+      let e_metadata_headers = [...e_metadata_records[0], ...img_info_headers];
+      //write new file with headers
+      Utils.writeFile(e_metadata_info_file_path, e_metadata_headers.join(_filter["_mdCsvSeparator"]));
+    } else {//case: hasn't metadata configs
+      //delete metadata info file if exists
+      if(Utils.fileExists(e_metadata_info_file_path)) Utils.deletePath(e_metadata_info_file_path);
+    }
 
     //control
     let imageNamesToKeep = [];
@@ -1066,7 +1089,36 @@ async function updateImages(stepId, input) {
               //prepare image info 
               let imgInfo = current_attachment_map_o.imgInfo;
               //append image info
-              Utils.appendFile(e_images_info_file_path, `${imgInfo.assetUid},${Utils.getCsvString(imgInfo.assetName)},${imgInfo.recordId},${Utils.getCsvString(imgInfo.name)},${imgInfo.size},${Utils.getCsvString(imgInfo.sizeMB)},${Utils.getCsvString(imgInfo.type)},${Utils.getCsvString(imgInfo.dimensions)},${imgInfo.width},${imgInfo.height}, ${Utils.getCsvString(JSON.stringify(imgInfo.hash))}`, {onNewLine: true});
+              Utils.appendFile(e_images_info_file_path, `${imgInfo.assetUid},${Utils.getCsvString(imgInfo.assetName)},${imgInfo.recordId},${Utils.getCsvString(imgInfo.name)},${imgInfo.size},${Utils.getCsvString(imgInfo.sizeMB)},${Utils.getCsvString(imgInfo.type)},${Utils.getCsvString(imgInfo.dimensions)},${imgInfo.width},${imgInfo.height}, ${Utils.getCsvString(Utils.hashToHex(imgInfo.hash))}`, {onNewLine: true});
+
+              ////////////////////
+              //prepare metadata info
+              if(_filter.metadata) {
+                //get metadata record
+                let md_record = Utils.getMetadataRecord(e_metadata_records, imgInfo.name, _filter._mdCsvImageNameColumnIndex, _filter._mdCsvSeparator);
+                //check
+                if(!md_record) {
+                  /**
+                   * Warning: image not in metadata input.
+                   */
+                  let warning = `image '${colors.blue(imgInfo.name)}' isn't in metadata input file ${colors.blue.dim(e_metadata_info_file_path)}`;
+                  warnings.push(warning);
+                } else {                  
+                  //check
+                  if(Array.isArray(md_record)) {
+                    /**
+                     * Warning: metadata input has repeated values.
+                     */
+                    let warning = `metadata input has repeated values: image '${colors.blue(imgInfo.name)}' appears ${md_record.length} times in metadata input file ${colors.blue.dim(e_metadata_info_file_path)}`;
+                    warnings.push(warning);
+                  } else {
+                    //append metadata info + img_info: ['size', 'sizeMB', 'type', 'dimensions', 'width', 'height']
+                    let md_info = [md_record, imgInfo.size, Utils.getCsvString(imgInfo.sizeMB), Utils.getCsvString(imgInfo.type), Utils.getCsvString(imgInfo.dimensions), imgInfo.width, imgInfo.height];
+                    Utils.appendFile(e_metadata_info_file_path, `${md_info.join(_filter._mdCsvSeparator)}`, {onNewLine: true});
+                  }
+                }
+              }
+              ////////////////////
 
               //prepare result: add status + updated_path + action_detail
               _result[e_key] = { ...emap[e_key], status: 'ok', op: "saveImage", updated_path: e_img_file_path, action_detail: `image up to date` };
@@ -1093,6 +1145,7 @@ async function updateImages(stepId, input) {
               check(result.contentLength, 'defined', 'number');
               check(result.contentType, 'ifDefined', 'string');
               
+              ////////////////////
               //prepare image info 
               let imgInfo = await Utils.getImgInfo(join(e_img_dir_path, img_new_name));
               //internal
@@ -1111,14 +1164,46 @@ async function updateImages(stepId, input) {
               //add to result
               result.imgInfo = imgInfo;
               //append image info
-              Utils.appendFile(e_images_info_file_path, `${Utils.getCsvString(imgInfo.assetUid)},${Utils.getCsvString(imgInfo.assetName)},${imgInfo.recordId},${Utils.getCsvString(imgInfo.name)},${imgInfo.size},${Utils.getCsvString(imgInfo.sizeMB)},${Utils.getCsvString(imgInfo.type)},${Utils.getCsvString(imgInfo.dimensions)},${imgInfo.width},${imgInfo.height}, ${Utils.getCsvString(JSON.stringify(imgInfo.hash))}`, {onNewLine: true});
-              
+              Utils.appendFile(e_images_info_file_path, `${Utils.getCsvString(imgInfo.assetUid)},${Utils.getCsvString(imgInfo.assetName)},${imgInfo.recordId},${Utils.getCsvString(imgInfo.name)},${imgInfo.size},${Utils.getCsvString(imgInfo.sizeMB)},${Utils.getCsvString(imgInfo.type)},${Utils.getCsvString(imgInfo.dimensions)},${imgInfo.width},${imgInfo.height}, ${Utils.getCsvString(Utils.hashToHex(imgInfo.hash))}`, {onNewLine: true});
+              ////////////////////
+
+              ////////////////////
+              //prepare metadata info
+              if(_filter.metadata) {
+                //get metadata record
+                let md_record = Utils.getMetadataRecord(e_metadata_records, img_new_name, _filter._mdCsvImageNameColumnIndex, _filter._mdCsvSeparator);
+                //check
+                if(!md_record) {
+                  /**
+                   * Warning: image not in metadata input.
+                   */
+                  let warning = `image '${colors.blue(img_new_name)}' isn't in metadata input file ${colors.blue.dim(e_metadata_info_file_path)}`;
+                  warnings.push(warning);
+                } else {                  
+                  //check
+                  if(Array.isArray(md_record)) {
+                    /**
+                     * Warning: metadata input has repeated values.
+                     */
+                    let warning = `metadata input has repeated values: image '${colors.blue(img_new_name)}' appears ${md_record.length} times in metadata input file ${colors.blue.dim(e_metadata_info_file_path)}`;
+                    warnings.push(warning);
+                  } else {
+                    //append metadata info + img_info: ['size', 'sizeMB', 'type', 'dimensions', 'width', 'height']
+                    let md_info = [md_record, imgInfo.size, Utils.getCsvString(imgInfo.sizeMB), Utils.getCsvString(imgInfo.type), Utils.getCsvString(imgInfo.dimensions), imgInfo.width, imgInfo.height];
+                    Utils.appendFile(e_metadata_info_file_path, `${md_info.join(_filter._mdCsvSeparator)}`, {onNewLine: true});
+                  }                  
+                }
+              }
+              ////////////////////
+
+              ////////////////////
               //prepare attachment map
               e_attachment_map_o.saveTimestamp = Utils.getCurrentTimestamp();
               e_attachment_map_o.imgInfo = imgInfo;
               //write attachment map
               Utils.writeFile(e_attachment_map_file_path, JSON.stringify(e_attachment_map_o));
-
+              ////////////////////
+              
               //prepare result: add status + updated_path + action_detail
               let op = {op: "saveImage", status: 'ok', result, updated_path: e_img_file_path, action_detail: `image downloaded`};
               _result[e_key] = { ...emap[e_key], ...op};

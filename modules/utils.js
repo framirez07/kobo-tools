@@ -5,6 +5,7 @@ import nodejq  from 'node-jq';
 import colors from 'colors/safe.js';
 import sjcl from 'sjcl';
 import Canvas from 'canvas';
+import csvParseSync from 'csv-parse/lib/sync.js';
 
 /**
  * toJqSelectBody  builds and returns a Jq select argument
@@ -736,6 +737,21 @@ export function isValidFileHash(file, hash) {
 }
 
 /**
+ * hashToHex  converts binary hash to hex.
+ * @param {array} hash binary hash to be converted to hex.
+ */
+export function hashToHex(hash) {
+  //internal
+  check(hash, 'mustExists', 'array');
+
+  try {
+    return sjcl.codec.hex.fromBits(hash);
+  } catch (e) {
+    throw new Error(`hashToHex operation failed: ` + e.message);
+  }
+}
+
+/**
  * buildImageName  returns an image name builded from
  * given arguments.
  * @param {string} prefix prefix to add to name.
@@ -822,6 +838,97 @@ export function getCsvString(str, sep) {
   let i = str.indexOf(_sep);
   if(i !== -1) return '"' + str.replace(/[""]/g, '\\$&') + '"';
   else return str;
+}
+
+/**
+ * getCsvRecordsFromFile  read csv file and return csv parsed records.
+ * @param {string} csvFile csv file.
+ * @param {string} sep csv separator, default is ','.
+ */
+export function getCsvRecordsFromFile(csvFile, sep) {
+  //internal
+  check(csvFile, 'mustExists', 'string');
+  check(sep, 'ifExists', 'string');
+
+  let _sep = sep ? sep : ',';
+
+  let _file = csvFile;
+  let data = null;
+  let records = null;
+
+  //read
+  try {
+    data = fs.readFileSync(_file, 'utf8');
+  } catch (e) {
+    throw new Error(`file read operation failed: ${_file} - error: ` + e.message);
+  }
+
+  //parse
+  try {
+    records = csvParseSync(data, {
+      columns: false,
+      skip_empty_lines: true,
+      delimiter: _sep
+    })
+    //internal
+    check(records, 'mustExists', 'array');
+    //check
+    if(records.length === 0) throw new Error(`csv parsed result is empty - csv file: ${_file}`);
+  } catch (e) {
+    throw new Error(`CSV parse operation failed - csv file: ${_file} - error: ` + e.message);
+  }
+  //check
+  if(records.length === 1) throw new Error(`csv parsed results has not data - csv file: ${_file}`);
+
+  //check headers
+  let headers = records[0];
+  //internal
+  check(headers, 'mustExists', 'array');
+
+  return records;
+}
+
+/**
+ * getMetadataRecord  search for @value in @records array.
+ * Only searchs in @columnIndex column. If image found,
+ * builds a csv formated string with the record data, otherwise
+ * returns null.
+ * @param {array}   records records parsed from csv file.
+ * @param {string}  value value to find in records.
+ * @param {number}  columnIndex column index into which seek the value. 
+ * @param {string}  separator csv separator.
+ */
+export function getMetadataRecord(records, value, columnIndex, separator) {
+  //internal
+  check(records, 'mustExists', 'array');
+  check(value, 'mustExists', 'string');
+  check(columnIndex, 'defined', 'number');
+  check(separator, 'mustExists', 'string');
+  if(columnIndex < 0 ) throw new Error (`expected non negative number in @arg: ${columnIndex}`);
+
+  let result = [];
+
+  //for each record: search for value
+  for(let i=0; i<records.length; i++) {
+    let _record = records[i];
+    let _value = _record[columnIndex];
+    
+    //case: found
+    if(_value.trim() === value.trim()) { 
+      let record_values = [];
+      //get csv record values
+      for(let j=0; j<_record.length; j++) {
+        if(_record[j] && typeof _record[j] === 'string') record_values.push(getCsvString(_record[j], separator));
+        else record_values.push(_record[j]);
+      }
+
+      result.push(record_values.join(separator));
+    }
+  }//end: for each record
+
+  if(result.length === 0) return null; //@value not found
+  else if(result.length > 1) return result; //@value repeated
+  else return result[0]; //@value found (unique)
 }
 
 /**

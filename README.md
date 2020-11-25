@@ -340,8 +340,36 @@ program option | environment variable | run-configs JSON | globals.js
 `n/a` | `n/a` | `filters.submissionIdsCsv` | `n/a`
 `n/a` | `n/a` | `filters.submissionIdsCsvIdColumnName` | `n/a`
 `n/a` | `n/a` | `filters.submissionIdsCsvSeparator` | `n/a`
+`n/a` | `n/a` | `filters.metadata` | `n/a`
+`n/a` | `n/a` | `filters.metadata.mdCsv` | `n/a`
+`n/a` | `n/a` | `filters.metadata.mdCsvImageNameColumn` | `n/a`
+`n/a` | `n/a` | `filters.metadata.mdCsvSeparator` | `n/a`
 
 * The `submissionIds` allows you to configure an array with submissions ids. If `submissionIdsCsv` is also configured, the final set of submissions ids will be the union of both options.
+* If you provide `metadata` configuration for a given filter, then, an aditionsl output file `metadata_info.csv` will be generated in directory `data`, which will contain the metadata info in `mdCsv` plus the following image info: `type, size, dimensions, width, height`. `mdCsvImageNameColumn` should contains the name of the column on which the image name being updated will be searched; if this column has repeated values, a warning will be emited for each value repeated.
+  
+  Example:
+```json
+{
+  "apiServerUrl": "https://kobo.conabio.gob.mx/",
+  "mediaServerUrl": "https://kcat.conabio.gob.mx/",
+  "outputDir": "output",
+  "deleteImages": false,
+  "filters": [
+    {
+      "assetId": "<assetUid>",
+      "submissionIdsCsv": "colectas.csv",
+      "submissionIdsCsvIdColumnName": "id",
+      "submissionIdsCsvSeparator": ",",
+      "metadata": {
+        "mdCsv": "metadata.csv",
+        "mdCsvImageNameColumn": "ImageNameColumn",
+        "mdCsvSeparator": "," 
+      }
+    }
+  ]
+}
+```
 
 If some configuration is defined using several options, the following precedence will apply (from highest to lowest precedence):
 

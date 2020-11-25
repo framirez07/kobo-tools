@@ -13,6 +13,7 @@ import fs from 'fs-extra';
 import { resolve, join, parse } from 'path';
 import csvParseSync from 'csv-parse/lib/sync.js';
 import colors from 'colors/safe.js';
+import { run } from 'node-jq';
 
 /**
  * init  build configurations object and setup the
@@ -100,7 +101,7 @@ export function getConfigs(program, mainDir) {
      * lookup for configFile in:
      *  - configFile
      *  - mainDir/run-configs/
-     *  - mainDIr/ 
+     *  - mainDir/ 
      */
     let _lookedPaths = [];
     let _configFile_path = null;
@@ -128,10 +129,18 @@ export function getConfigs(program, mainDir) {
     runConfigs = Utils.parseJSONFile(_configFile_path);
     checkRunConfigs(runConfigs, mainDir);
 
-    //set submission ids
+    //for each filter
     for(let i=0; i<runConfigs.filters.length; i++) {
       let filter = runConfigs.filters[i];
+      //set submission ids
       filter._submissionIds = getSubmissionIds(filter, mainDir);
+      //set metadata fields
+      if(filter.metadata) {
+        filter._mdCsvPath = resolveInputFile(filter.metadata.mdCsv, mainDir);
+        filter._mdCsvSeparator = filter.metadata.mdCsvSeparator ? filter.metadata.mdCsvSeparator : ',';
+        filter._mdCsvImageNameColumnIndex = resolveCsvColumnIndex(filter._mdCsvPath, filter.metadata.mdCsvImageNameColumn, filter._mdCsvSeparator);
+        filter._mdCsvImageNameColumn = filter.metadata.mdCsvImageNameColumn;
+      }
     }
   }
 
@@ -369,6 +378,109 @@ function getSubmissionIds(filter, mainDir) {
 }
 
 /**
+ * resolveInputFile  resolve path of given @file if exists. Throw
+ * error if not exists.
+ * @param {object} file input file to resolve.
+ * @param {string} mainDir dirname of the main js script.
+ * @return {string} resolved file path.
+ */
+function resolveInputFile(file, mainDir) {
+  //internal
+  check(file, 'mustExists', 'string');
+  check(mainDir, 'mustExists', 'string');
+
+  /**
+   * lookup for file in:
+   *  - file
+   *  - mainDir/input/
+   *  - mainDir/ 
+   */
+  let _lookedPaths = [];
+  let _first_path = resolve(file);
+
+  if(Utils.fileExists(_first_path)) return _first_path;
+  else {
+    _lookedPaths.push(_first_path);
+
+    let _dir = parse(file).dir;
+    if(_dir === '') {
+      let _second_path = resolve(join(mainDir, "input", file));
+      let _third_path = resolve(join(mainDir, file));
+      if(Utils.fileExists(_second_path)) return _second_path;
+      else {
+        if(!_lookedPaths.includes(_second_path)) _lookedPaths.push(_second_path);
+        if(Utils.fileExists(_third_path)) return _third_path;
+        else { //not found
+          if(!_lookedPaths.includes(_third_path)) _lookedPaths.push(_third_path);
+          throw new Error(`input file not found: ${file} - in: \n${JSON.stringify(_lookedPaths, null, 2)}`);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * resolveCsvColumnIndex  resolve column name in the given @csvFile if exists. Throw
+ * error if column does not exists.
+ * @param {object} csvFile csv file.
+ * @param {string} column column name to resolve.
+ * @param {string} delimiter column delimiter.
+ * @return {string} resolved column name.
+ */
+function resolveCsvColumnIndex(csvFile, column, delimiter) {
+  //internal
+  check(csvFile, 'mustExists', 'string');
+  check(column, 'mustExists', 'string');
+  check(delimiter, 'mustExists', 'string');
+
+  let _file = csvFile;
+  let data = null;
+  let records = null;
+
+  //read
+  try {
+    data = fs.readFileSync(_file, 'utf8');
+  } catch (e) {
+    throw new Error(`file read operation failed: ${_file} - error: ` + e.message);
+  }
+
+  //parse
+  try {
+    records = csvParseSync(data, {
+      columns: false,
+      skip_empty_lines: true,
+      delimiter: delimiter
+    })
+    //internal
+    check(records, 'mustExists', 'array');
+    //check
+    if(records.length === 0) throw new Error(`csv parsed result is empty - csv file: ${_file}`);
+  } catch (e) {
+    throw new Error(`CSV parse operation failed - csv file: ${_file} - error: ` + e.message);
+  }
+  //check
+  if(records.length === 1) throw new Error(`csv parsed results has not data - csv file: ${_file}`);
+
+  //get headers
+  let headers = records[0];
+  //internal
+  check(headers, 'mustExists', 'array');
+
+  //check _id column
+  let columnCount = 0;
+  let idColumnIndex = -1;
+  for(let i=0; i<headers.length; i++) {
+    let h = headers[i];
+    if(h.trim() === column) { columnCount++; idColumnIndex = i };
+  }
+  //check
+  if(columnCount === 0) throw new Error(`column '${column}' not found in csv @headers - csv file: ${_file}`);
+  if(columnCount > 1) throw new Error(`column '${column}' found more than once in csv @headers - csv file: ${_file}`);
+
+  return idColumnIndex;
+}
+
+/**
  * getSubmissionIdsFromCsv  gets ids from csv file. Throw
  * error if some id isn't valid.
  * @param {object} filter object with filter configurations.
@@ -378,13 +490,13 @@ function getSubmissionIdsFromCsv(filter, mainDir) {
   //internal
   check(filter, 'mustExists', 'object');
   check(filter.submissionIdsCsv, 'mustExists', 'string');
-  check(filter.submissionIdsCsvIdColumnName, 'ifExists', 'string');
+  check(filter.submissionIdsCsvIdColumn, 'ifExists', 'string');
   check(filter.submissionIdsCsvSeparator, 'ifExists', 'string');
   check(mainDir, 'mustExists', 'string');
   
   let data = null;
   let records = null;
-  let _idColumn = (filter.submissionIdsCsvIdColumnName) ? filter.submissionIdsCsvIdColumnName : 'id';
+  let _idColumn = (filter.submissionIdsCsvIdColumn) ? filter.submissionIdsCsvIdColumn : 'id';
   let _delimiter = (filter.submissionIdsCsvSeparator) ? filter.submissionIdsCsvSeparator : ',';
   let ids = [];
   let errors = [];
@@ -393,30 +505,9 @@ function getSubmissionIdsFromCsv(filter, mainDir) {
    * lookup for submissionIdsCsv file in:
    *  - submissionIdsCsv
    *  - mainDir/input/
-   *  - mainDIr/ 
+   *  - mainDir/ 
    */
-  let _lookedPaths = [];
-  let _file = null;
-  let _first_path = resolve(filter.submissionIdsCsv);
-
-  if(Utils.fileExists(_first_path)) _file = _first_path;
-  else {
-    _lookedPaths.push(_first_path);
-
-    let _dir = parse(filter.submissionIdsCsv).dir;
-    if(_dir === '') {
-      let _second_path = resolve(join(mainDir, "input", filter.submissionIdsCsv));
-      let _third_path = resolve(join(mainDir, filter.submissionIdsCsv));
-      if(Utils.fileExists(_second_path)) _file = _second_path;
-      else {
-        if(!_lookedPaths.includes(_second_path)) _lookedPaths.push(_second_path);
-        if(Utils.fileExists(_third_path)) _file = _third_path;
-        else if(!_lookedPaths.includes(_third_path)) _lookedPaths.push(_third_path);
-      }
-    }
-  }
-  //check
-  if(!_file) throw new Error(`submissionIdsCsv file not found: ${filter.submissionIdsCsv} - in: \n${JSON.stringify(_lookedPaths, null, 2)}`);
+  let _file = resolveInputFile(filter.submissionIdsCsv, mainDir);
 
   //read
   try {
@@ -452,7 +543,8 @@ function getSubmissionIdsFromCsv(filter, mainDir) {
   let idColumnIndex = -1;
   for(let i=0; i<headers.length; i++) {
     let h = headers[i];
-    if(h === _idColumn) { idColumnCount++; idColumnIndex = i };
+    //for(let l=0; l<h.length; l++) console.log("[",l,"]:", Number(h[l]))
+    if(h.trim() === _idColumn) { idColumnCount++; idColumnIndex = i };
   }
   //check
   if(idColumnCount === 0) throw new Error(`id column '${_idColumn}' not found in csv @headers`);
@@ -529,8 +621,9 @@ function checkRunConfigs(configs) {
   let errors = [];
   let valid_keys = ['filters', 'token', 'apiServerUrl', 'mediaServerUrl', 'outputDir', 'maxRequestRetries',
                     'maxDownloadRetries', 'requestTimeout', 'connectionTimeout', 'downloadTimeout', 'deleteImages'];
-  let valid_filters_keys = ['assetId', 'submissionIdsCsv', 'submissionIds', 'submissionIdsCsvIdColumnName',
-                            'submissionIdsCsvSeparator'];
+  let valid_filters_keys = ['assetId', 'submissionIdsCsv', 'submissionIds', 'submissionIdsCsvIdColumn',
+                            'submissionIdsCsvSeparator', 'metadata'];
+  let valid_metadata_keys = ['mdCsv', 'mdCsvImageNameColumn', 'mdCsvSeparator'];
 
   //check: keys
   let o_keys = Object.keys(configs);
@@ -578,6 +671,7 @@ function checkRunConfigs(configs) {
       errors.push(`expected array in @filters`);
     } else {
       //for each filter entry
+      let assetIds = [];
       for(let i=0; i<configs.filters.length; i++) {
         let filter = configs.filters[i];
 
@@ -586,8 +680,11 @@ function checkRunConfigs(configs) {
           errors.push(`expected object - in @filters entry ${i}`);
         } else {
 
-          //check: keys
+          //get keys
           let o_keys = Object.keys(filter);
+          //check: no keys
+          if(!o_keys.length) errors.push(`filter entry has not keys configured: - in @filters entry ${i}`);
+          //check: valid keys
           for(let j=0; j<o_keys.length; j++) {
             if(!valid_filters_keys.includes(o_keys[j])) errors.push(`not valid key in configs.filters: '${o_keys[j]}'`);
           }
@@ -597,6 +694,8 @@ function checkRunConfigs(configs) {
           else if(filter.assetId === null) errors.push(`string expected in key 'assetId' but is null - in @filters entry ${i}`);
           else if(filter.assetId === '') errors.push(`non-empty string expected in key 'assetId' but is empty - in @filters entry ${i}`);
           else if(typeof filter.assetId !== 'string') errors.push(`string expected in key 'assetId' but is not a string - in @filters entry ${i}`);
+          else if(assetIds.includes(filter.assetId)) errors.push(`repeated 'assetId' found, each assetId should appears only once in filters - in @filters entry ${i}`);
+          else assetIds.push(filter.assetId);
 
           //check: submissionIds
           if(filter.submissionIds !== undefined) {
@@ -611,13 +710,13 @@ function checkRunConfigs(configs) {
             else if(typeof filter.submissionIdsCsv !== 'string') errors.push(`string expected in key 'submissionIdsCsv' but is not a string - in @filters entry ${i}`);
           }
 
-          //check: submissionIdsCsvIdColumnName
-          if(filter.submissionIdsCsvIdColumnName !== undefined) {
-            if(filter.submissionIdsCsvIdColumnName === null) errors.push(`string expected in key 'submissionIdsCsvIdColumnName' but is null - in @filters entry ${i}`);
-            else if(filter.submissionIdsCsvIdColumnName === '') errors.push(`string expected in key 'submissionIdsCsvIdColumnName' but is empty - in @filters entry ${i}`);
-            else if(typeof filter.submissionIdsCsvIdColumnName !== 'string') errors.push(`string expected in key 'submissionIdsCsvIdColumnName' but is not a string - in @filters entry ${i}`);
+          //check: submissionIdsCsvIdColumn
+          if(filter.submissionIdsCsvIdColumn !== undefined) {
+            if(filter.submissionIdsCsvIdColumn === null) errors.push(`string expected in key 'submissionIdsCsvIdColumn' but is null - in @filters entry ${i}`);
+            else if(filter.submissionIdsCsvIdColumn === '') errors.push(`string expected in key 'submissionIdsCsvIdColumn' but is empty - in @filters entry ${i}`);
+            else if(typeof filter.submissionIdsCsvIdColumn !== 'string') errors.push(`string expected in key 'submissionIdsCsvIdColumn' but is not a string - in @filters entry ${i}`);
 
-            if(!filter.submissionIdsCsv === undefined) errors.push(`key 'submissionIdsCsvIdColumnName' is defined but 'submissionIdsCsv' isn't - in @filters entry ${i}`);
+            if(!filter.submissionIdsCsv === undefined) errors.push(`key 'submissionIdsCsvIdColumn' is defined but 'submissionIdsCsv' isn't - in @filters entry ${i}`);
           }
 
           //check: submissionIdsCsvSeparator
@@ -627,6 +726,42 @@ function checkRunConfigs(configs) {
             else if(typeof filter.submissionIdsCsvSeparator !== 'string') errors.push(`string expected in key 'submissionIdsCsvSeparator' but is not a string - in @filters entry ${i}`);
 
             if(!filter.submissionIdsCsv === undefined) errors.push(`key 'submissionIdsCsvSeparator' is defined but 'submissionIdsCsv' isn't - in @filters entry ${i}`);
+          }
+
+          //check: metadata
+          if(filter.metadata !== undefined) {
+            //check
+            if(!filter.metadata || typeof filter.metadata !== 'object') {
+              errors.push(`expected object in @filters.metadata`);
+            } else {
+              //get keys
+              let o_keys = Object.keys(filter.metadata);
+              //check: no keys
+              if(!o_keys.length) errors.push(`filter.metadata has not keys configured: - in @filters entry ${i}`);
+              //check: valid keys
+              for(let j=0; j<o_keys.length; j++) {
+                if(!valid_metadata_keys.includes(o_keys[j])) errors.push(`not valid key in configs.filters.metadata: '${o_keys[j]}' - in @filters entry ${i}`);
+              }
+
+              //check: mdCsv (required)
+              if(filter.metadata.mdCsv === undefined) errors.push(`string expected in key 'metadata.mdCsv' but is undefined - in @filters entry ${i}`);
+              else if(filter.metadata.mdCsv === null) errors.push(`string expected in key 'metadata.mdCsv' but is null - in @filters entry ${i}`);
+              else if(filter.metadata.mdCsv === '') errors.push(`string expected in key 'metadata.mdCsv' but is empty - in @filters entry ${i}`);
+              else if(typeof filter.metadata.mdCsv !== 'string') errors.push(`string expected in key 'submissionIdsCsv' but is not a string - in @filters entry ${i}`);
+
+              //check: mdCsvImageNameColumn (required)
+              if(filter.metadata.mdCsvImageNameColumn === undefined) errors.push(`string expected in key 'metadata.mdCsvImageNameColumn' but is undefined - in @filters entry ${i}`);
+              else if(filter.metadata.mdCsvImageNameColumn === null) errors.push(`string expected in key 'metadata.mdCsvImageNameColumn' but is null - in @filters entry ${i}`);
+              else if(filter.metadata.mdCsvImageNameColumn === '') errors.push(`string expected in key 'metadata.mdCsvImageNameColumn' but is empty - in @filters entry ${i}`);
+              else if(typeof filter.metadata.mdCsvImageNameColumn !== 'string') errors.push(`string expected in key 'metadata.mdCsvImageNameColumn' but is not a string - in @filters entry ${i}`);
+
+              //check: mdCsvSeparator
+              if(filter.metadata.mdCsvSeparator !== undefined) {
+                if(filter.metadata.mdCsvSeparator === null) errors.push(`string expected in key 'metadata.mdCsvSeparator' but is null - in @filters entry ${i}`);
+                else if(filter.metadata.mdCsvSeparator === '') errors.push(`string expected in key 'metadata.mdCsvSeparator' but is empty - in @filters entry ${i}`);
+                else if(typeof filter.metadata.mdCsvSeparator !== 'string') errors.push(`string expected in key 'metadata.mdCsvSeparator' but is not a string - in @filters entry ${i}`);
+              }
+            }
           }
 
         }//end: for each filter entry
