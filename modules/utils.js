@@ -836,7 +836,9 @@ export function getCsvString(str, sep) {
   let _sep = sep ? sep : ',';
 
   let i = str.indexOf(_sep);
-  if(i !== -1) return '"' + str.replace(/["]/g, '""') + '"';
+  let j = str.indexOf('"');
+
+  if(i !== -1 || j !== -1) return '"' + str.replace(/["]/g, '""') + '"';
   else return str;
 }
 
