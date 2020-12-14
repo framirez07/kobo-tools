@@ -1021,7 +1021,9 @@ async function updateImages(stepId, input) {
             let e_attachment_id = e_value.attachment.id;
             
             //image new name
-            let img_new_name = emap["_id"] + '_' + e_value.value;
+            let _img_prefix =  emap["_id"] + '_';  
+            let img_new_name = (_filter && _filter._noImagePrefix) ? e_value.value : _img_prefix + e_value.value;
+            let isDuplicated = false;
             /**
              * Check: duplicated names
              * 
@@ -1033,8 +1035,17 @@ async function updateImages(stepId, input) {
                */
               let error = `in action 'keep': image name is duplicated: ${img_new_name}`;
               imageNamesToKeepDuplicated.push(img_new_name);
+              isDuplicated = true;
 
-              throw new Error(error);
+              if(_filter && _filter._noImagePrefix && _filter._renameDuplicates) {
+                //add prefix
+                image_new_name = _img_prefix + e_value.value;
+
+                //check
+                if(imageNamesToKeep.includes(img_new_name)) throw new Error(error);
+
+                imageNamesToKeep.push(img_new_name);
+              } else throw new Error(error);
             } else imageNamesToKeep.push(img_new_name);
 
             //attachment map object
@@ -1124,7 +1135,7 @@ async function updateImages(stepId, input) {
               _result[e_key] = { ...emap[e_key], status: 'ok', op: "saveImage", updated_path: e_img_file_path, action_detail: `image up to date` };
               
               //report
-              let result_msg = `image ${colors.green.dim('up to date')}`;
+              let result_msg = `image ${colors.green.dim('up to date')}${(isDuplicated) ? colors.yellow.dim('[duplicated image name]') : ''}`;
               let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, img_new_name, result_msg);
               Utils.log(_configs.runLogPath, _report);
 
@@ -1209,7 +1220,7 @@ async function updateImages(stepId, input) {
               _result[e_key] = { ...emap[e_key], ...op};
 
               //report
-              let result_msg = `image ${colors.green('downloaded')}`;
+              let result_msg = `image ${colors.green('downloaded')}${(isDuplicated) ? colors.yellow.dim('[duplicated image name]') : ''}`;
               let _report = Utils.getActionReportLine(emap["_id"], m+1, asset.map.length, e_value.action, ++action_count, mapCounters.totalActions, j+1, _emap_entries.length, img_new_name, result_msg);
               Utils.log(_configs.runLogPath, _report);
               

@@ -141,6 +141,11 @@ export function getConfigs(program, mainDir) {
         filter._mdCsvImageNameColumnIndex = resolveCsvColumnIndex(filter._mdCsvPath, filter.metadata.mdCsvImageNameColumn, filter._mdCsvSeparator);
         filter._mdCsvImageNameColumn = filter.metadata.mdCsvImageNameColumn;
       }
+      //set noImagePrefix
+      filter._noImagePrefix = Boolean(filter.noImagePrefix);
+
+      //set renameDuplicates
+      filter._renameDuplicates = Boolean(filter.renameDuplicates);
     }
   }
 
@@ -622,7 +627,7 @@ function checkRunConfigs(configs) {
   let valid_keys = ['filters', 'token', 'apiServerUrl', 'mediaServerUrl', 'outputDir', 'maxRequestRetries',
                     'maxDownloadRetries', 'requestTimeout', 'connectionTimeout', 'downloadTimeout', 'deleteImages'];
   let valid_filters_keys = ['assetId', 'submissionIdsCsv', 'submissionIds', 'submissionIdsCsvIdColumn',
-                            'submissionIdsCsvSeparator', 'metadata'];
+                            'submissionIdsCsvSeparator', 'metadata', 'noImagePrefix', 'renameDuplicates'];
   let valid_metadata_keys = ['mdCsv', 'mdCsvImageNameColumn', 'mdCsvSeparator'];
 
   //check: keys
@@ -762,6 +767,18 @@ function checkRunConfigs(configs) {
                 else if(typeof filter.metadata.mdCsvSeparator !== 'string') errors.push(`string expected in key 'metadata.mdCsvSeparator' but is not a string - in @filters entry ${i}`);
               }
             }
+          }
+
+          //check: noImagePrefix
+          if(filter.noImagePrefix !== undefined) {
+            if(filter.noImagePrefix === null) errors.push(`boolean expected in key 'noImagePrefix' but is null - in @filters entry ${i}`);
+            else if(typeof filter.noImagePrefix !== 'boolean') errors.push(`boolean expected in key 'noImagePrefix' but is not a boolean - in @filters entry ${i}`);
+          }
+
+          //check: renameDuplicates
+          if(filter.renameDuplicates !== undefined) {
+            if(filter.renameDuplicates === null) errors.push(`boolean expected in key 'renameDuplicates' but is null - in @filters entry ${i}`);
+            else if(typeof filter.renameDuplicates !== 'boolean') errors.push(`boolean expected in key 'renameDuplicates' but is not a boolean - in @filters entry ${i}`);
           }
 
         }//end: for each filter entry
