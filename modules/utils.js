@@ -999,3 +999,25 @@ export function log(logFile, data, options) {
   //log to file
   appendFile(logFile, logfileOutput.replace(/\u001b\[.*?m/g, ''), {async:false});
 }
+
+/**
+ * getImageDownloadUrl  returns the image download url formatted accorded
+ * to the api version detected.
+ * @param {object} attachment attachment object with download url's. 
+ */
+export function getImageDownloadUrl(attachment) {
+  //internal
+  check(attachment, 'mustExists', 'object');
+  check(attachment.download_url, 'mustExists', 'string');
+  check(attachment.filename, 'mustExists', 'string');
+  check(attachment.download_small_url, 'ifExists', 'string');
+  
+  //detect version
+  let isPreviousVersion = attachment.download_small_url === undefined;
+
+  if(isPreviousVersion) {
+    return `/attachment/original?media_file=${attachment.filename}`;
+  } else {
+    return `/attachment/${attachment.download_url}`;
+  }
+}

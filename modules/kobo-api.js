@@ -406,7 +406,7 @@ export async function getSubmissions(uid, options) {
   check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
-  let next = `${options.apiServerUrl}/assets/${uid}/submissions/`;
+  let next = `${options.apiServerUrl}/assets/${uid}/data/`;
   let results = [];
 
   //progress
@@ -464,7 +464,10 @@ export async function getSubmissions(uid, options) {
       (response) => {
         //internal
         check(response, 'mustExists', 'object');
-        check(response.data, 'mustExists', 'array');
+        check(response.data, 'mustExists', 'object');
+        check(response.data.next, 'ifExists', 'string');
+        check(response.data.count, 'defined', 'number');
+        check(response.data.results, 'mustExists', 'array');
                   
         //ok
         return response;
@@ -520,9 +523,9 @@ export async function getSubmissions(uid, options) {
    */
   let filtered_result = [];
   if(options.resFilters) {
-    filtered_result = await Utils.applyFilters(options.resFilters, response.data);
+    filtered_result = await Utils.applyFilters(options.resFilters, response.data.results);
   } else {
-    filtered_result = [...response.data];
+    filtered_result = [...response.data.results];
   }
   //join results
   results = [...results, ...filtered_result];

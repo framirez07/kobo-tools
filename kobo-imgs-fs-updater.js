@@ -147,7 +147,7 @@ async function getAssetsList(stepId) {
    * Set required keys
    */
   //asset keys
-  let r_asset_keys = ["uid", "name", "deployment__submission_count"];
+  let r_asset_keys = ["uid", "name"];
 
   /**
    * Configure filters 
@@ -372,17 +372,7 @@ async function getAssetsSubmissions(stepId, input) {
     //internal
     check(asset, 'mustExists', 'object');
     check(asset.uid, 'mustExists', 'string');
-    check(asset.deployment__submission_count, 'defined', 'number');
     check(asset.imgs, 'mustExists', 'array');
-
-    //check: no submissions
-    if(asset.deployment__submission_count === 0) {
-      //log
-      Utils.log(_configs.runLogPath, `[${indexIndicatorColor(i+1)}/${indexIndicatorColor(assets.length)}]${assetIdColor(asset.uid)}: has no submissions - ${colors.yellow('(skipped)')}`);
-      //count
-      assetsFiltered++;
-      continue;
-    }
 
     //check: no image-fields
     if(asset.imgs.length === 0) {
@@ -1015,8 +1005,6 @@ async function updateImages(stepId, input) {
              *    - Checks if the hash in the map is equal to the hash of the
              *      image currently stored: if equals the image has integrity.
              */
-            //attachment download url
-            let e_attachment_download_url = e_value.attachment.download_url;
             //attachment id
             let e_attachment_id = e_value.attachment.id;
             
@@ -1146,6 +1134,9 @@ async function updateImages(stepId, input) {
               /**
                * Case: download.
                */
+              //attachment download url
+              //let e_attachment_download_url = e_value.attachment.download_url;
+              let e_attachment_download_url = Utils.getImageDownloadUrl(e_value.attachment);
               /**
                * FS handler
                */
