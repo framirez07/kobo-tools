@@ -23,7 +23,7 @@ export async function getAssets(options) {
   check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
-  let next = `${options.apiServerUrl}/assets/?limit=1&offset=0`;
+  let next = `${options.apiServerUrl}/api/v2/assets/?limit=1&offset=0`;
   let results = [];
 
   //progress
@@ -213,7 +213,7 @@ export async function getAssetInfo(uid, options) {
   check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
-  let next = `${options.apiServerUrl}/assets/${uid}`;
+  let next = `${options.apiServerUrl}/api/v2/assets/${uid}`;
   let results = [];
 
   //progress
@@ -406,7 +406,7 @@ export async function getSubmissions(uid, options) {
   check(options.runLogPath, 'mustExists', 'string');
 
   //endpoint
-  let next = `${options.apiServerUrl}/assets/${uid}/data/`;
+  let next = `${options.apiServerUrl}/api/v2/assets/${uid}/data/`;
   let results = [];
 
   //progress
